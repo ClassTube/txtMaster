@@ -151,6 +151,17 @@ FILTERGRAPH DESCRIPTION
        when the next special character (belonging to the set []=;,) is
        encountered.
 
+       A special syntax implemented in the ffmpeg CLI tool allows loading
+       option values from files. This is done be prepending a slash '/' to the
+       option name, then the supplied value is interpreted as a path from
+       which the actual value is loaded. E.g.
+
+	       ffmpeg -i <INPUT> -vf drawtext=/text=/tmp/some_text <OUTPUT>
+
+       will load the text to be drawn from /tmp/some_text. API users wishing
+       to implement a similar feature should use the
+       "avfilter_graph_segment_*()" functions together with custom IO code.
+
        The name and arguments of the filter are optionally preceded and
        followed by a list of link labels.  A link label allows one to name a
        link and associate it to a filter output or input pad. The preceding
@@ -180,6 +191,22 @@ FILTERGRAPH DESCRIPTION
        In a complete filterchain all the unlabelled filter input and output
        pads must be connected. A filtergraph is considered valid if all the
        filter input and output pads of all the filterchains are connected.
+
+       Leading and trailing whitespaces (space, tabs, or line feeds)
+       separating tokens in the filtergraph specification are ignored. This
+       means that the filtergraph can be expressed using empty lines and
+       spaces to improve redability.
+
+       For example, the filtergraph:
+
+	       testsrc,split[L1],hflip[L2];[L1][L2] hstack
+
+       can be represented as:
+
+	       testsrc,
+	       split [L1], hflip [L2];
+
+	       [L1][L2] hstack
 
        Libavfilter will automatically insert scale filters where format
        conversion is required. It is possible to specify swscale flags for
@@ -241,6 +268,16 @@ FILTERGRAPH DESCRIPTION
 
 	       -vf "drawtext=text=this is a \\\\\\'string\\\\\\'\\\\: may contain one\\, or more\\, special characters"
 
+       In order to avoid cumbersome escaping when using a commandline tool
+       accepting a filter specification as input, it is advisable to avoid
+       direct inclusion of the filter or options specification in the shell.
+
+       For example, in case of the drawtext filter, you might prefer to use
+       the textfile option in place of text to specify the text to render.
+
+       When using the ffmpeg tool, you might consider to use the
+       -filter_script option or -filter_complex_script option.
+
 TIMELINE EDITING
        Some filters support a generic enable option. For the filters
        supporting timeline editing, this option can be set to an expression
@@ -255,7 +292,8 @@ TIMELINE EDITING
 
        n   sequential number of the input frame, starting from 0
 
-       pos the position in the file of the input frame, NAN if unknown
+       pos the position in the file of the input frame, NAN if unknown;
+	   deprecated, do not use
 
        w
        h   width and height of the input frame if video
@@ -305,6 +343,18 @@ OPTIONS FOR FILTERS WITH SEVERAL INPUTS
 	   If set to 1, force the filter to extend the last frame of secondary
 	   streams until the end of the primary stream. A value of 0 disables
 	   this behavior.  Default value is 1.
+
+       ts_sync_mode
+	   How strictly to sync streams based on secondary input timestamps;
+	   it accepts one of the following values:
+
+	   default
+	       Frame from secondary input with the nearest lower or equal
+	       timestamp to the primary input frame.
+
+	   nearest
+	       Frame from secondary input with the absolute nearest timestamp
+	       to the primary input frame.
 
 AUDIO FILTERS
        When you configure your FFmpeg build, you can disable any of the
@@ -497,6 +547,20 @@ AUDIO FILTERS
 
        gains
 	   Set output gain for each band. Default value is 1 for all bands.
+
+       precision
+	   Set which precision to use when processing samples.
+
+	   auto
+	       Auto pick internal sample format depending on other filters.
+
+	   float
+	       Always use single-floating point precision sample format.
+
+	   double
+	       Always use double-floating point precision sample format.
+
+	   Default value is "auto".
 
        Examples
 
@@ -752,6 +816,76 @@ AUDIO FILTERS
 
        Applying both filters one after another produces original audio.
 
+   adrc
+       Apply spectral dynamic range controller filter to input audio stream.
+
+       A description of the accepted options follows.
+
+       transfer
+	   Set the transfer expression.
+
+	   The expression can contain the following constants:
+
+	   ch  current channel number
+
+	   sn  current sample number
+
+	   nb_channels
+	       number of channels
+
+	   t   timestamp expressed in seconds
+
+	   sr  sample rate
+
+	   p   current frequency power value, in dB
+
+	   f   current frequency in Hz
+
+	   Default value is "p".
+
+       attack
+	   Set the attack in milliseconds. Default is 50 milliseconds.
+	   Allowed range is from 1 to 1000 milliseconds.
+
+       release
+	   Set the release in milliseconds. Default is 100 milliseconds.
+	   Allowed range is from 5 to 2000 milliseconds.
+
+       channels
+	   Set which channels to filter, by default "all" channels in audio
+	   stream are filtered.
+
+       Commands
+
+       This filter supports the all above options as commands.
+
+       Examples
+
+       o   Apply spectral compression to all frequencies with threshold of -50
+	   dB and 1:6 ratio:
+
+		   adrc=transfer='if(gt(p,-50),-50+(p-(-50))/6,p)':attack=50:release=100
+
+       o   Similar to above but with 1:2 ratio and filtering only front center
+	   channel:
+
+		   adrc=transfer='if(gt(p,-50),-50+(p-(-50))/2,p)':attack=50:release=100:channels=FC
+
+       o   Apply spectral noise gate to all frequencies with threshold of -85
+	   dB and with short attack time and short release time:
+
+		   adrc=transfer='if(lte(p,-85),p-800,p)':attack=1:release=5
+
+       o   Apply spectral expansion to all frequencies with threshold of -10
+	   dB and 1:2 ratio:
+
+		   adrc=transfer='if(lt(p,-10),-10+(p-(-10))*2,p)':attack=50:release=100
+
+       o   Apply limiter to max -60 dB to all frequencies, with attack of 2 ms
+	   and release of 10 ms:
+
+		   adrc=transfer='min(p,-60)':attack=2:release=10
+
    adynamicequalizer
        Apply dynamic equalization to input audio stream.
 
@@ -759,16 +893,16 @@ AUDIO FILTERS
 
        threshold
 	   Set the detection threshold used to trigger equalization.
-	   Threshold detection is using bandpass filter.  Default value is 0.
+	   Threshold detection is using detection filter.  Default value is 0.
 	   Allowed range is from 0 to 100.
 
        dfrequency
-	   Set the detection frequency in Hz used for bandpass filter used to
+	   Set the detection frequency in Hz used for detection filter used to
 	   trigger equalization.  Default value is 1000 Hz. Allowed range is
 	   between 2 and 1000000 Hz.
 
        dqfactor
-	   Set the detection resonance factor for bandpass filter used to
+	   Set the detection resonance factor for detection filter used to
 	   trigger equalization.  Default value is 1. Allowed range is from
 	   0.001 to 1000.
 
@@ -790,31 +924,23 @@ AUDIO FILTERS
 	   fall below the detection threshold before equalization ends.
 	   Default is 200. Allowed range is between 1 and 2000.
 
-       knee
-	   Curve the sharp knee around the detection threshold to calculate
-	   equalization gain more softly.  Default is 1. Allowed range is
-	   between 0 and 8.
-
        ratio
 	   Set the ratio by which the equalization gain is raised.  Default is
-	   1. Allowed range is between 1 and 20.
+	   1. Allowed range is between 0 and 30.
 
        makeup
-	   Set the makeup offset in dB by which the equalization gain is
-	   raised.  Default is 0. Allowed range is between 0 and 30.
+	   Set the makeup offset by which the equalization gain is raised.
+	   Default is 0. Allowed range is between 0 and 100.
 
        range
-	   Set the max allowed cut/boost amount in dB. Default is 0.  Allowed
-	   range is from 0 to 200.
-
-       slew
-	   Set the slew factor. Default is 1. Allowed range is from 1 to 200.
+	   Set the max allowed cut/boost amount. Default is 50.  Allowed range
+	   is from 1 to 200.
 
        mode
 	   Set the mode of filter operation, can be one of the following:
 
 	   listen
-	       Output only isolated bandpass signal.
+	       Output only isolated detection signal.
 
 	   cut Cut frequencies above detection threshold.
 
@@ -822,6 +948,63 @@ AUDIO FILTERS
 	       Boost frequencies bellow detection threshold.
 
 	   Default mode is cut.
+
+       dftype
+	   Set the type of detection filter, can be one of the following:
+
+	   bandpass
+	   lowpass
+	   highpass
+	   peak
+
+	   Default type is bandpass.
+
+       tftype
+	   Set the type of target filter, can be one of the following:
+
+	   bell
+	   lowshelf
+	   highshelf
+
+	   Default type is bell.
+
+       direction
+	   Set processing direction relative to threshold.
+
+	   downward
+	       Boost/Cut if threshold is higher/lower than detected volume.
+
+	   upward
+	       Boost/Cut if threshold is lower/higher than detected volume.
+
+	   Default direction is downward.
+
+       auto
+	   Automatically gather threshold from detection filter. By default is
+	   disabled.  This option is useful to detect threshold in certain
+	   time frame of input audio stream, in such case option value is
+	   changed at runtime.
+
+	   Available values are:
+
+	   disabled
+	       Disable using automatically gathered threshold value.
+
+	   off Stop picking threshold value.
+
+	   on  Start picking threshold value.
+
+       precision
+	   Set which precision to use when processing samples.
+
+	   auto
+	       Auto pick internal sample format depending on other filters.
+
+	   float
+	       Always use single-floating point precision sample format.
+
+	   double
+	       Always use double-floating point precision sample format.
 
        Commands
 
@@ -1128,8 +1311,28 @@ AUDIO FILTERS
 	   isinc
 	       select inverted sine cardinal function
 
+	   quat
+	       select quartic
+
+	   quatr
+	       select quartic root
+
+	   qsin2
+	       select squared quarter of sine wave
+
+	   hsin2
+	       select squared half of sine wave
+
 	   nofade
 	       no fade applied
+
+       silence
+	   Set the initial gain for fade-in or final gain for fade-out.
+	   Default value is 0.0.
+
+       unity
+	   Set the initial gain for fade-out or final gain for fade-in.
+	   Default value is 1.0.
 
        Commands
 
@@ -1150,69 +1353,138 @@ AUDIO FILTERS
 
        A description of the accepted parameters follows.
 
-       nr  Set the noise reduction in dB, allowed range is 0.01 to 97.
+       noise_reduction, nr
+	   Set the noise reduction in dB, allowed range is 0.01 to 97.
 	   Default value is 12 dB.
 
-       nf  Set the noise floor in dB, allowed range is -80 to -20.  Default
+       noise_floor, nf
+	   Set the noise floor in dB, allowed range is -80 to -20.  Default
 	   value is -50 dB.
 
-       nt  Set the noise type.
+       noise_type, nt
+	   Set the noise type.
 
 	   It accepts the following values:
 
-	   w   Select white noise.
+	   white, w
+	       Select white noise.
 
-	   v   Select vinyl noise.
+	   vinyl, v
+	       Select vinyl noise.
 
-	   s   Select shellac noise.
+	   shellac, s
+	       Select shellac noise.
 
-	   c   Select custom noise, defined in "bn" option.
+	   custom, c
+	       Select custom noise, defined in "bn" option.
 
 	       Default value is white noise.
 
-       bn  Set custom band noise for every one of 15 bands.  Bands are
+       band_noise, bn
+	   Set custom band noise profile for every one of 15 bands.  Bands are
 	   separated by ' ' or '|'.
 
-       rf  Set the residual floor in dB, allowed range is -80 to -20.  Default
+       residual_floor, rf
+	   Set the residual floor in dB, allowed range is -80 to -20.  Default
 	   value is -38 dB.
 
-       tn  Enable noise tracking. By default is disabled.  With this enabled,
-	   noise floor is automatically adjusted.
+       track_noise, tn
+	   Enable noise floor tracking. By default is disabled.  With this
+	   enabled, noise floor is automatically adjusted.
 
-       tr  Enable residual tracking. By default is disabled.
+       track_residual, tr
+	   Enable residual tracking. By default is disabled.
 
-       om  Set the output mode.
+       output_mode, om
+	   Set the output mode.
 
 	   It accepts the following values:
 
-	   i   Pass input unchanged.
+	   input, i
+	       Pass input unchanged.
 
-	   o   Pass noise filtered out.
+	   output, o
+	       Pass noise filtered out.
 
-	   n   Pass only noise.
+	   noise, n
+	       Pass only noise.
 
-	       Default value is o.
+	       Default value is output.
+
+       adaptivity, ad
+	   Set the adaptivity factor, used how fast to adapt gains adjustments
+	   per each frequency bin. Value 0 enables instant adaptation, while
+	   higher values react much slower.  Allowed range is from 0 to 1.
+	   Default value is 0.5.
+
+       floor_offset, fo
+	   Set the noise floor offset factor. This option is used to adjust
+	   offset applied to measured noise floor. It is only effective when
+	   noise floor tracking is enabled.  Allowed range is from -2.0 to
+	   2.0. Default value is 1.0.
+
+       noise_link, nl
+	   Set the noise link used for multichannel audio.
+
+	   It accepts the following values:
+
+	   none
+	       Use unchanged channel's noise floor.
+
+	   min Use measured min noise floor of all channels.
+
+	   max Use measured max noise floor of all channels.
+
+	   average
+	       Use measured average noise floor of all channels.
+
+	       Default value is min.
+
+       band_multiplier, bm
+	   Set the band multiplier factor, used how much to spread bands
+	   across frequency bins.  Allowed range is from 0.2 to 5. Default
+	   value is 1.25.
+
+       sample_noise, sn
+	   Toggle capturing and measurement of noise profile from input audio.
+
+	   It accepts the following values:
+
+	   start, begin
+	       Start sample noise capture.
+
+	   stop, end
+	       Stop sample noise capture and measure new noise band profile.
+
+	       Default value is "none".
+
+       gain_smooth, gs
+	   Set gain smooth spatial radius, used to smooth gains applied to
+	   each frequency bin.	Useful to reduce random music noise artefacts.
+	   Higher values increases smoothing of gains.	Allowed range is from
+	   0 to 50.  Default value is 0.
 
        Commands
 
-       This filter supports the following commands:
+       This filter supports the some above mentioned options as commands.
 
-       sample_noise, sn
-	   Start or stop measuring noise profile.  Syntax for the command is :
-	   "start" or "stop" string.  After measuring noise profile is stopped
-	   it will be automatically applied in filtering.
+       Examples
 
-       noise_reduction, nr
-	   Change noise reduction. Argument is single float number.  Syntax
-	   for the command is : "noise_reduction"
+       o   Reduce white noise by 10dB, and use previously measured noise floor
+	   of -40dB:
 
-       noise_floor, nf
-	   Change noise floor. Argument is single float number.  Syntax for
-	   the command is : "noise_floor"
+		   afftdn=nr=10:nf=-40
 
-       output_mode, om
-	   Change output mode operation.  Syntax for the command is : "i", "o"
-	   or "n" string.
+       o   Reduce white noise by 10dB, also set initial noise floor to -80dB
+	   and enable automatic tracking of noise floor so noise floor will
+	   gradually change during processing:
+
+		   afftdn=nr=10:nf=-80:tn=1
+
+       o   Reduce noise by 20dB, using noise floor of -40dB and using commands
+	   to take noise profile of first 0.4 seconds of input audio:
+
+		   asendcmd=0.0 afftdn sn start,asendcmd=0.4 afftdn sn stop,afftdn=nr=20:nf=-40
 
    afftfilt
        Apply arbitrary expressions to samples in frequency domain.
@@ -1283,6 +1555,7 @@ AUDIO FILTERS
 	   parzen
 	   poisson
 	   bohman
+	   kaiser
 
 	   Default is "hann".
 
@@ -1303,6 +1576,10 @@ AUDIO FILTERS
        o   Apply whisper effect:
 
 		   afftfilt="real='hypot(re,im)*cos((random(0)*2-1)*2*3.14)':imag='hypot(re,im)*sin((random(1)*2-1)*2*3.14)':win_size=128:overlap=0.8"
+
+       o   Apply phase shift:
+
+		   afftfilt="real=re*cos(1)-im*sin(1):imag=re*sin(1)+im*cos(1)"
 
    afir
        Apply an arbitrary Finite Impulse Response filter.
@@ -1346,6 +1623,10 @@ AUDIO FILTERS
 
 	   gn  select gain to noise approach, this is most popular one.
 
+	   ac  select AC gain.
+
+	   rms select RMS gain.
+
        irgain
 	   Set gain to be applied to IR coefficients before filtering.
 	   Allowed range is 0 to 1. This gain is applied after any gain
@@ -1379,12 +1660,12 @@ AUDIO FILTERS
 
        minp
 	   Set minimal partition size used for convolution. Default is 8192.
-	   Allowed range is from 1 to 32768.  Lower values decreases latency
+	   Allowed range is from 1 to 65536.  Lower values decreases latency
 	   at cost of higher CPU usage.
 
        maxp
 	   Set maximal partition size used for convolution. Default is 8192.
-	   Allowed range is from 8 to 32768.  Lower values may increase CPU
+	   Allowed range is from 8 to 65536.  Lower values may increase CPU
 	   usage.
 
        nbirs
@@ -1396,12 +1677,37 @@ AUDIO FILTERS
 	   should always be lower than supplied value by "nbirs" option.
 	   Default is 0.  This option can be changed at runtime via commands.
 
+       precision
+	   Set which precision to use when processing samples.
+
+	   auto
+	       Auto pick internal sample format depending on other filters.
+
+	   float
+	       Always use single-floating point precision sample format.
+
+	   double
+	       Always use double-floating point precision sample format.
+
+	   Default value is auto.
+
+       irload
+	   Set when to load IR stream. Can be "init" or "access".  First one
+	   load and prepares all IRs on initialization, second one once on
+	   first access of specific IR.  Default is "init".
+
        Examples
 
        o   Apply reverb to stream using mono IR file as second input, complete
 	   command using ffmpeg:
 
 		   ffmpeg -i input.wav -i middle_tunnel_1way_mono.wav -lavfi afir output.wav
+
+       o   Apply true stereo processing given input stereo stream, and two
+	   stereo impulse responses for left and right channel, the impulse
+	   response files are files with names l_ir.wav and r_ir.wav:
+
+		   "pan=4C|c0=FL|c1=FL|c2=FR|c3=FR[a];amovie=l_ir.wav[LIR];amovie=r_ir.wav[RIR];[LIR][RIR]amerge[ir];[a][ir]afir=irfmt=input:gtype=gn:irgain=-5dB,pan=stereo|FL<c0+c2|FR<c1+c3"
 
    aformat
        Set output format constraints for the input audio. The framework will
@@ -1718,6 +2024,11 @@ AUDIO FILTERS
 	   Auto level output signal. Default is enabled.  This normalizes
 	   audio back to 0dB if enabled.
 
+       latency
+	   Compensate the delay introduced by using the lookahead buffer set
+	   with attack parameter. Also flush the valid audio data in the
+	   lookahead buffer when the stream hits EOF.
+
        Depending on picked setting it is recommended to upsample input 2x or
        4x times with aresample before applying this filter.
 
@@ -1768,9 +2079,11 @@ AUDIO FILTERS
 
 	   di
 	   dii
+	   tdi
 	   tdii
 	   latt
 	   svf
+	   zdf
        precision, r
 	   Set precison of filtering.
 
@@ -1816,6 +2129,10 @@ AUDIO FILTERS
 
        start
 	   Set first sample of loop. Default is 0.
+
+       time
+	   Set the time of loop start in seconds.  Only used if option named
+	   start is set to "-1".
 
    amerge
        Merge two or more audio streams into a single multi-channel stream.
@@ -1867,13 +2184,6 @@ AUDIO FILTERS
        samples then aresample will be automatically inserted to perform the
        conversion to float samples.
 
-       For example
-
-	       ffmpeg -i INPUT1 -i INPUT2 -i INPUT3 -filter_complex amix=inputs=3:duration=first:dropout_transition=3 OUTPUT
-
-       will mix 3 input audio streams to a single output with the same
-       duration as the first input and a dropout transition time of 3 seconds.
-
        It accepts the following parameters:
 
        inputs
@@ -1896,14 +2206,31 @@ AUDIO FILTERS
 	   input stream ends. The default value is 2 seconds.
 
        weights
-	   Specify weight of each input audio stream as sequence.  Each weight
-	   is separated by space. By default all inputs have same weight.
+	   Specify weight of each input audio stream as a sequence of numbers
+	   separated by a space. If fewer weights are specified compared to
+	   number of inputs, the last weight is assigned to the remaining
+	   inputs.  Default weight for each input is 1.
 
        normalize
 	   Always scale inputs instead of only doing summation of samples.
 	   Beware of heavy clipping if inputs are not normalized prior or
 	   after filtering by this filter if this option is disabled. By
 	   default is enabled.
+
+       Examples
+
+       o   This will mix 3 input audio streams to a single output with the
+	   same duration as the first input and a dropout transition time of 3
+	   seconds:
+
+		   ffmpeg -i INPUT1 -i INPUT2 -i INPUT3 -filter_complex amix=inputs=3:duration=first:dropout_transition=3 OUTPUT
+
+       o   This will mix one vocal and one music input audio stream to a
+	   single output with the same duration as the longest input. The
+	   music will have quarter the weight as the vocals, and the inputs
+	   are not normalized:
+
+		   ffmpeg -i VOCALS -i MUSIC -filter_complex amix=inputs=2:duration=longest:dropout_transition=0:weights="1 0.25":normalize=0 OUTPUT
 
        Commands
 
@@ -2009,7 +2336,7 @@ AUDIO FILTERS
        The filter accepts the following options:
 
        strength, s
-	   Set denoising strength. Allowed range is from 0.00001 to 10.
+	   Set denoising strength. Allowed range is from 0.00001 to 10000.
 	   Default value is 0.00001.
 
        patch, p
@@ -2035,7 +2362,7 @@ AUDIO FILTERS
 
        smooth, m
 	   Set smooth factor. Default value is 11. Allowed range is from 1 to
-	   15.
+	   1000.
 
        Commands
 
@@ -2069,9 +2396,13 @@ AUDIO FILTERS
 
 	   d   Pass the 2nd input.
 
-	   o   Pass filtered samples.
+	   o   Pass difference between desired, 2nd input and error signal
+	       estimate.
 
-	   n   Pass difference between desired and filtered samples.
+	   n   Pass difference between input, 1st input and error signal
+	       estimate.
+
+	   e   Pass error signal estimated samples.
 
 	       Default value is o.
 
@@ -2203,6 +2534,12 @@ AUDIO FILTERS
 
        This filter supports the all above options as commands.
 
+   apsnr
+       Measure Audio Peak Signal-to-Noise Ratio.
+
+       This filter takes two audio streams for input, and outputs first audio
+       stream.	Results are in dB per channel at end of either input.
+
    apsyclip
        Apply Psychoacoustic clipper to input audio stream.
 
@@ -2222,7 +2559,7 @@ AUDIO FILTERS
 	   distortions.  By default is disabled.
 
        adaptive
-	   Set strenght of adaptive distortion applied. Default value is 0.5.
+	   Set strength of adaptive distortion applied. Default value is 0.5.
 	   Allowed range is from 0 to 1.
 
        iterations
@@ -2329,6 +2666,44 @@ AUDIO FILTERS
 
 		   atrim=end=5,areverse
 
+   arls
+       Apply Recursive Least Squares algorithm to the first audio stream using
+       the second audio stream.
+
+       This adaptive filter is used to mimic a desired filter by recursively
+       finding the filter coefficients that relate to producing the minimal
+       weighted linear least squares cost function of the error signal
+       (difference between the desired, 2nd input audio stream and the actual
+       signal, the 1st input audio stream).
+
+       A description of the accepted options follows.
+
+       order
+	   Set the filter order.
+
+       lambda
+	   Set the forgetting factor.
+
+       delta
+	   Set the coefficient to initialize internal covariance matrix.
+
+       out_mode
+	   Set the filter output samples. It accepts the following values:
+
+	   i   Pass the 1st input.
+
+	   d   Pass the 2nd input.
+
+	   o   Pass difference between desired, 2nd input and error signal
+	       estimate.
+
+	   n   Pass difference between input, 1st input and error signal
+	       estimate.
+
+	   e   Pass error signal estimated samples.
+
+	       Default value is o.
+
    arnndn
        Reduce noise from speech using Recurrent Neural Networks.
 
@@ -2404,10 +2779,6 @@ AUDIO FILTERS
        pts_time
 	   The presentation timestamp of the input frame in seconds.
 
-       pos position of the frame in the input stream, -1 if this information
-	   in unavailable and/or meaningless (for example in case of synthetic
-	   audio)
-
        fmt The sample format.
 
        chlayout
@@ -2426,6 +2797,12 @@ AUDIO FILTERS
 
        plane_checksums
 	   A list of Adler-32 checksums for each data plane.
+
+   asisdr
+       Measure Audio Scaled-Invariant Signal-to-Distortion Ratio.
+
+       This filter takes two audio streams for input, and outputs first audio
+       stream.	Results are in dB per channel at end of either input.
 
    asoftclip
        Apply audio soft clipping.
@@ -2503,12 +2880,18 @@ AUDIO FILTERS
 	   parzen
 	   poisson
 	   bohman
+	   kaiser
 
 	   Default is "hann".
 
        overlap
 	   Set window overlap. Allowed range is from 0 to 1. Default value is
 	   0.5.
+
+       measure
+	   Select the parameters which are measured. The metadata keys can be
+	   used as flags, default is all which measures everything.  none
+	   disables all measurement.
 
        A list of each metadata key follows:
 
@@ -2575,27 +2958,27 @@ AUDIO FILTERS
 	   "lavfi.astats.X", where "X" is channel number starting from 1 or
 	   string "Overall". Default is disabled.
 
-	   Available keys for each channel are: DC_offset Min_level Max_level
-	   Min_difference Max_difference Mean_difference RMS_difference
-	   Peak_level RMS_peak RMS_trough Crest_factor Flat_factor Peak_count
-	   Noise_floor Noise_floor_count Entropy Bit_depth Dynamic_range
-	   Zero_crossings Zero_crossings_rate Number_of_NaNs Number_of_Infs
-	   Number_of_denormals
+	   Available keys for each channel are: Bit_depth Crest_factor
+	   DC_offset Dynamic_range Entropy Flat_factor Max_difference
+	   Max_level Mean_difference Min_difference Min_level Noise_floor
+	   Noise_floor_count Number_of_Infs Number_of_NaNs Number_of_denormals
+	   Peak_count Abs_Peak_count Peak_level RMS_difference RMS_peak
+	   RMS_trough Zero_crossings Zero_crossings_rate
 
-	   and for Overall: DC_offset Min_level Max_level Min_difference
-	   Max_difference Mean_difference RMS_difference Peak_level RMS_level
-	   RMS_peak RMS_trough Flat_factor Peak_count Noise_floor
-	   Noise_floor_count Entropy Bit_depth Number_of_samples
-	   Number_of_NaNs Number_of_Infs Number_of_denormals
+	   and for "Overall": Bit_depth DC_offset Entropy Flat_factor
+	   Max_difference Max_level Mean_difference Min_difference Min_level
+	   Noise_floor Noise_floor_count Number_of_Infs Number_of_NaNs
+	   Number_of_denormals Number_of_samples Peak_count Abs_Peak_count
+	   Peak_level RMS_difference RMS_level RMS_peak RMS_trough
 
-	   For example full key look like this "lavfi.astats.1.DC_offset" or
-	   this "lavfi.astats.Overall.Peak_count".
+	   For example, a full key looks like "lavfi.astats.1.DC_offset" or
+	   "lavfi.astats.Overall.Peak_count".
 
-	   For description what each key means read below.
+	   Read below for the description of the keys.
 
        reset
 	   Set the number of frames over which cumulative stats are calculated
-	   before being reset Default is disabled.
+	   before being reset. Default is disabled.
 
        measure_perchannel
 	   Select the parameters which are measured per channel. The metadata
@@ -2607,71 +2990,96 @@ AUDIO FILTERS
 	   can be used as flags, default is all which measures everything.
 	   none disables all overall measurement.
 
-       A description of each shown parameter follows:
+       A description of the measure keys follow:
 
-       DC offset
-	   Mean amplitude displacement from zero.
+       none
+	   no measures
 
-       Min level
-	   Minimal sample level.
+       all all measures
 
-       Max level
-	   Maximal sample level.
+       Bit_depth
+	   overall bit depth of audio, i.e. number of bits used for each
+	   sample
 
-       Min difference
-	   Minimal difference between two consecutive samples.
+       Crest_factor
+	   standard ratio of peak to RMS level (note: not in dB)
 
-       Max difference
-	   Maximal difference between two consecutive samples.
+       DC_offset
+	   mean amplitude displacement from zero
 
-       Mean difference
-	   Mean difference between two consecutive samples.  The average of
-	   each difference between two consecutive samples.
-
-       RMS difference
-	   Root Mean Square difference between two consecutive samples.
-
-       Peak level dB
-       RMS level dB
-	   Standard peak and RMS level measured in dBFS.
-
-       RMS peak dB
-       RMS trough dB
-	   Peak and trough values for RMS level measured over a short window.
-
-       Crest factor
-	   Standard ratio of peak to RMS level (note: not in dB).
-
-       Flat factor
-	   Flatness (i.e. consecutive samples with the same value) of the
-	   signal at its peak levels (i.e. either Min level or Max level).
-
-       Peak count
-	   Number of occasions (not the number of samples) that the signal
-	   attained either Min level or Max level.
-
-       Noise floor dB
-	   Minimum local peak measured in dBFS over a short window.
-
-       Noise floor count
-	   Number of occasions (not the number of samples) that the signal
-	   attained Noise floor.
+       Dynamic_range
+	   measured dynamic range of audio in dB
 
        Entropy
-	   Entropy measured across whole audio. Entropy of value near 1.0 is
-	   typically measured for white noise.
+	   entropy measured across whole audio, entropy of value near 1.0 is
+	   typically measured for white noise
 
-       Bit depth
-	   Overall bit depth of audio. Number of bits used for each sample.
+       Flat_factor
+	   flatness (i.e. consecutive samples with the same value) of the
+	   signal at its peak levels (i.e. either Min_level or Max_level)
 
-       Dynamic range
-	   Measured dynamic range of audio in dB.
+       Max_difference
+	   maximal difference between two consecutive samples
+
+       Max_level
+	   maximal sample level
+
+       Mean_difference
+	   mean difference between two consecutive samples, i.e. the average
+	   of each difference between two consecutive samples
+
+       Min_difference
+	   minimal difference between two consecutive samples
+
+       Min_level
+	   minimal sample level
+
+       Noise_floor
+	   minimum local peak measured in dBFS over a short window
+
+       Noise_floor_count
+	   number of occasions (not the number of samples) that the signal
+	   attained Noise floor
+
+       Number_of_Infs
+	   number of samples with an infinite value
+
+       Number_of_NaNs
+	   number of samples with a NaN (not a number) value
+
+       Number_of_denormals
+	   number of samples with a subnormal value
+
+       Number_of_samples
+	   number of samples
+
+       Peak_count
+	   number of occasions (not the number of samples) that the signal
+	   attained either Min_level or Max_level
+
+       Abs_Peak_count
+	   number of occasions that the absolute samples taken from the signal
+	   attained max absolute value of Min_level and Max_level
+
+       Peak_level
+	   standard peak level measured in dBFS
+
+       RMS_difference
+	   Root Mean Square difference between two consecutive samples
+
+       RMS_level
+	   standard RMS level measured in dBFS
+
+       RMS_peak
+       RMS_trough
+	   peak and trough values for RMS level measured over a short window,
+	   measured in dBFS.
 
        Zero crossings
-	   Number of points where the waveform crosses the zero level axis.
+	   number of points where the waveform crosses the zero level axis
 
        Zero crossings rate
-	   Rate of Zero crossings and number of audio samples.
+	   rate of Zero crossings and number of audio samples
 
    asubboost
        Boost subwoofer frequencies.
@@ -2679,14 +3087,18 @@ AUDIO FILTERS
        The filter accepts the following options:
 
        dry Set dry gain, how much of original signal is kept. Allowed range is
-	   from 0 to 1.  Default value is 0.7.
+	   from 0 to 1.  Default value is 1.0.
 
        wet Set wet gain, how much of filtered signal is kept. Allowed range is
-	   from 0 to 1.  Default value is 0.7.
+	   from 0 to 1.  Default value is 1.0.
+
+       boost
+	   Set max boost factor. Allowed range is from 1 to 12. Default value
+	   is 2.
 
        decay
 	   Set delay line decay gain value. Allowed range is from 0 to 1.
-	   Default value is 0.7.
+	   Default value is 0.0.
 
        feedback
 	   Set delay line feedback gain value. Allowed range is from 0 to 1.
@@ -2702,6 +3114,9 @@ AUDIO FILTERS
 
        delay
 	   Set delay. Allowed range is from 1 to 100.  Default value is 20.
+
+       channels
+	   Set the channels to process. Default value is all available.
 
        Commands
 
@@ -2946,11 +3361,11 @@ AUDIO FILTERS
 	   Default is 256. Allowed range is from 2 to 131072.
 
        algo
-	   Set algorithm for cross-correlation. Can be "slow" or "fast".
-	   Default is "slow". Fast algorithm assumes mean values over any
-	   given segment are always zero and thus need much less calculations
-	   to make.  This is generally not true, but is valid for typical
-	   audio streams.
+	   Set algorithm for cross-correlation. Can be "slow" or "fast" or
+	   "best".  Default is "best". Fast algorithm assumes mean values over
+	   any given segment are always zero and thus need much less
+	   calculations to make.  This is generally not true, but is valid for
+	   typical audio streams.
 
        Examples
 
@@ -3005,9 +3420,11 @@ AUDIO FILTERS
 
 	   di
 	   dii
+	   tdi
 	   tdii
 	   latt
 	   svf
+	   zdf
        precision, r
 	   Set precison of filtering.
 
@@ -3021,6 +3438,16 @@ AUDIO FILTERS
 	   f32 Always use float 32-bit.
 
 	   f64 Always use float 64-bit.
+
+       block_size, b
+	   Set block size used for reverse IIR processing. If this value is
+	   set to high enough value (higher than impulse response length
+	   truncated when reaches near zero values) filtering will become
+	   linear phase otherwise if not big enough it will just produce nasty
+	   artifacts.
+
+	   Note that filter delay will be exactly this many samples when set
+	   to non-zero value.
 
        Commands
 
@@ -3082,9 +3509,11 @@ AUDIO FILTERS
 
 	   di
 	   dii
+	   tdi
 	   tdii
 	   latt
 	   svf
+	   zdf
        precision, r
 	   Set precison of filtering.
 
@@ -3098,6 +3527,16 @@ AUDIO FILTERS
 	   f32 Always use float 32-bit.
 
 	   f64 Always use float 64-bit.
+
+       block_size, b
+	   Set block size used for reverse IIR processing. If this value is
+	   set to high enough value (higher than impulse response length
+	   truncated when reaches near zero values) filtering will become
+	   linear phase otherwise if not big enough it will just produce nasty
+	   artifacts.
+
+	   Note that filter delay will be exactly this many samples when set
+	   to non-zero value.
 
        Commands
 
@@ -3170,9 +3609,11 @@ AUDIO FILTERS
 
 	   di
 	   dii
+	   tdi
 	   tdii
 	   latt
 	   svf
+	   zdf
        precision, r
 	   Set precison of filtering.
 
@@ -3186,6 +3627,16 @@ AUDIO FILTERS
 	   f32 Always use float 32-bit.
 
 	   f64 Always use float 64-bit.
+
+       block_size, b
+	   Set block size used for reverse IIR processing. If this value is
+	   set to high enough value (higher than impulse response length
+	   truncated when reaches near zero values) filtering will become
+	   linear phase otherwise if not big enough it will just produce nasty
+	   artifacts.
+
+	   Note that filter delay will be exactly this many samples when set
+	   to non-zero value.
 
        Commands
 
@@ -3240,9 +3691,11 @@ AUDIO FILTERS
 
 	   di
 	   dii
+	   tdi
 	   tdii
 	   latt
 	   svf
+	   zdf
        precision, r
 	   Set precison of filtering.
 
@@ -3256,6 +3709,16 @@ AUDIO FILTERS
 	   f32 Always use float 32-bit.
 
 	   f64 Always use float 64-bit.
+
+       block_size, b
+	   Set block size used for reverse IIR processing. If this value is
+	   set to high enough value (higher than impulse response length
+	   truncated when reaches near zero values) filtering will become
+	   linear phase otherwise if not big enough it will just produce nasty
+	   artifacts.
+
+	   Note that filter delay will be exactly this many samples when set
+	   to non-zero value.
 
    bs2b
        Bauer stereo to binaural transformation, which improves headphone
@@ -3560,6 +4023,10 @@ AUDIO FILTERS
 	   Set temperature in degrees Celsius. This is the temperature of the
 	   environment.  Default is 20.
 
+       Commands
+
+       This filter supports the all above options as commands.
+
    crossfeed
        Apply headphone crossfeed filter.
 
@@ -3592,6 +4059,16 @@ AUDIO FILTERS
 
        level_out
 	   Set output gain. Default is 1.
+
+       block_size
+	   Set block size used for reverse IIR processing. If this value is
+	   set to high enough value (higher than impulse response length
+	   truncated when reaches near zero values) filtering will become
+	   linear phase otherwise if not big enough it will just produce nasty
+	   artifacts.
+
+	   Note that filter delay will be exactly this many samples when set
+	   to non-zero value.
 
        Commands
 
@@ -3653,6 +4130,33 @@ AUDIO FILTERS
 	   e   Pass only ess.
 
 	       Default value is o.
+
+   dialoguenhance
+       Enhance dialogue in stereo audio.
+
+       This filter accepts stereo input and produce surround (3.0) channels
+       output.	The newly produced front center channel have enhanced speech
+       dialogue originally available in both stereo channels.  This filter
+       outputs front left and front right channels same as available in stereo
+       input.
+
+       The filter accepts the following options:
+
+       original
+	   Set the original center factor to keep in front center channel
+	   output.  Allowed range is from 0 to 1. Default value is 1.
+
+       enhance
+	   Set the dialogue enhance factor to put in front center channel
+	   output.  Allowed range is from 0 to 3. Default value is 1.
+
+       voice
+	   Set the voice detection factor.  Allowed range is from 2 to 32.
+	   Default value is 2.
+
+       Commands
+
+       This filter supports the all above options as commands.
 
    drmeter
        Measure audio dynamic range.
@@ -3850,6 +4354,39 @@ AUDIO FILTERS
 	   normalized.	This option is mostly useful if digital noise is not
 	   wanted to be amplified.
 
+       channels, h
+	   Specify which channels to filter, by default all available channels
+	   are filtered.
+
+       overlap, o
+	   Specify overlap for frames. If set to 0 (default) no frame
+	   overlapping is done.  Using >0 and <1 values will make less
+	   conservative gain adjustments, like when framelen option is set to
+	   smaller value, if framelen option value is compensated for non-zero
+	   overlap then gain adjustments will be smoother across time compared
+	   to zero overlap case.
+
+       curve, v
+	   Specify the peak mapping curve expression which is going to be used
+	   when calculating gain applied to frames. The max output frame gain
+	   will still be limited by other options mentioned previously for
+	   this filter.
+
+	   The expression can contain the following constants:
+
+	   ch  current channel number
+
+	   sn  current sample number
+
+	   nb_channels
+	       number of channels
+
+	   t   timestamp expressed in seconds
+
+	   sr  sample rate
+
+	   p   current frame peak value
+
        Commands
 
        This filter supports the all above options as commands.
@@ -3915,9 +4452,11 @@ AUDIO FILTERS
 
 	   di
 	   dii
+	   tdi
 	   tdii
 	   latt
 	   svf
+	   zdf
        precision, r
 	   Set precison of filtering.
 
@@ -3931,6 +4470,16 @@ AUDIO FILTERS
 	   f32 Always use float 32-bit.
 
 	   f64 Always use float 64-bit.
+
+       block_size, b
+	   Set block size used for reverse IIR processing. If this value is
+	   set to high enough value (higher than impulse response length
+	   truncated when reaches near zero values) filtering will become
+	   linear phase otherwise if not big enough it will just produce nasty
+	   artifacts.
+
+	   Note that filter delay will be exactly this many samples when set
+	   to non-zero value.
 
        Examples
 
@@ -4389,9 +4938,11 @@ AUDIO FILTERS
 
 	   di
 	   dii
+	   tdi
 	   tdii
 	   latt
 	   svf
+	   zdf
        precision, r
 	   Set precison of filtering.
 
@@ -4405,6 +4956,16 @@ AUDIO FILTERS
 	   f32 Always use float 32-bit.
 
 	   f64 Always use float 64-bit.
+
+       block_size, b
+	   Set block size used for reverse IIR processing. If this value is
+	   set to high enough value (higher than impulse response length
+	   truncated when reaches near zero values) filtering will become
+	   linear phase otherwise if not big enough it will just produce nasty
+	   artifacts.
+
+	   Note that filter delay will be exactly this many samples when set
+	   to non-zero value.
 
        Commands
 
@@ -4595,7 +5156,7 @@ AUDIO FILTERS
 	   value is -24.0.
 
        LRA, lra
-	   Set loudness range target.  Range is 1.0 - 20.0. Default value is
+	   Set loudness range target.  Range is 1.0 - 50.0. Default value is
 	   7.0.
 
        TP, tp
@@ -4687,9 +5248,11 @@ AUDIO FILTERS
 
 	   di
 	   dii
+	   tdi
 	   tdii
 	   latt
 	   svf
+	   zdf
        precision, r
 	   Set precison of filtering.
 
@@ -4703,6 +5266,16 @@ AUDIO FILTERS
 	   f32 Always use float 32-bit.
 
 	   f64 Always use float 64-bit.
+
+       block_size, b
+	   Set block size used for reverse IIR processing. If this value is
+	   set to high enough value (higher than impulse response length
+	   truncated when reaches near zero values) filtering will become
+	   linear phase otherwise if not big enough it will just produce nasty
+	   artifacts.
+
+	   Note that filter delay will be exactly this many samples when set
+	   to non-zero value.
 
        Examples
 
@@ -4773,6 +5346,11 @@ AUDIO FILTERS
        o   Apply bit crusher plugin from ArtyFX:
 
 		   lv2=p=http\\\\://www.openavproductions.com/artyfx#bitta:c=crush=0.3
+
+       Commands
+
+       This filter supports all options that are exported by plugin as
+       commands.
 
    mcompand
        Multiband Compress or expand the audio's dynamic range.
@@ -4871,6 +5449,14 @@ AUDIO FILTERS
        ReplayGain scanner filter. This filter takes an audio stream as an
        input and outputs it unchanged.	At end of filtering it displays
        "track_gain" and "track_peak".
+
+       The filter accepts the following exported read-only options:
+
+       track_gain
+	   Exported track gain in dB at end of stream.
+
+       track_peak
+	   Exported track peak at end of stream.
 
    resample
        Convert the audio sample format, sample rate and channel layout. It is
@@ -5172,19 +5758,23 @@ AUDIO FILTERS
 	   samples detected as silence.
 
        start_mode
-	   Specify mode of detection of silence end in start of multi-channel
+	   Specify mode of detection of silence end at start of multi-channel
 	   audio.  Can be any or all. Default is any.  With any, any sample
-	   that is detected as non-silence will cause stopped trimming of
-	   silence.  With all, only if all channels are detected as non-
-	   silence will cause stopped trimming of silence.
+	   from any channel that is detected as non-silence will trigger end
+	   of silence trimming at start of audio stream.  With all, only if
+	   every sample from every channel is detected as non-silence will
+	   trigger end of silence trimming at start of audio stream, limited
+	   usage.
 
        stop_periods
-	   Set the count for trimming silence from the end of audio.  To
-	   remove silence from the middle of a file, specify a stop_periods
-	   that is negative. This value is then treated as a positive value
-	   and is used to indicate the effect should restart processing as
-	   specified by start_periods, making it suitable for removing periods
-	   of silence in the middle of the audio.  Default value is 0.
+	   Set the count for trimming silence from the end of audio. When
+	   specifying a positive value, it trims audio after it finds
+	   specified silence period.  To remove silence from the middle of a
+	   file, specify a stop_periods that is negative. This value is then
+	   treated as a positive value and is used to indicate the effect
+	   should restart processing as specified by stop_periods, making it
+	   suitable for removing periods of silence in the middle of the
+	   audio.  Default value is 0.
 
        stop_duration
 	   Specify a duration of silence that must exist before audio is not
@@ -5202,21 +5792,56 @@ AUDIO FILTERS
 	   detected as silence.
 
        stop_mode
-	   Specify mode of detection of silence start in end of multi-channel
-	   audio.  Can be any or all. Default is any.  With any, any sample
-	   that is detected as non-silence will cause stopped trimming of
-	   silence.  With all, only if all channels are detected as non-
-	   silence will cause stopped trimming of silence.
+	   Specify mode of detection of silence start after start of multi-
+	   channel audio.  Can be any or all. Default is all.  With any, any
+	   sample from any channel that is detected as silence will trigger
+	   start of silence trimming after start of audio stream, limited
+	   usage.  With all, only if every sample from every channel is
+	   detected as silence will trigger start of silence trimming after
+	   start of audio stream.
 
        detection
-	   Set how is silence detected. Can be "rms" or "peak". Second is
-	   faster and works better with digital silence which is exactly 0.
+	   Set how is silence detected.
+
+	   avg Mean of absolute values of samples in moving window.
+
+	   rms Root squared mean of absolute values of samples in moving
+	       window.
+
+	   peak
+	       Maximum of absolute values of samples in moving window.
+
+	   median
+	       Median of absolute values of samples in moving window.
+
+	   ptp Absolute of max peak to min peak difference of samples in
+	       moving window.
+
+	   dev Standard deviation of values of samples in moving window.
+
 	   Default value is "rms".
 
        window
 	   Set duration in number of seconds used to calculate size of window
-	   in number of samples for detecting silence.	Default value is 0.02.
-	   Allowed range is from 0 to 10.
+	   in number of samples for detecting silence. Using 0 will
+	   effectively disable any windowing and use only single sample per
+	   channel for silence detection.  In that case it may be needed to
+	   also set start_silence and/or stop_silence to nonzero values with
+	   also start_duration and/or stop_duration to nonzero values.
+	   Default value is 0.02. Allowed range is from 0 to 10.
+
+       timestamp
+	   Set processing mode of every audio frame output timestamp.
+
+	   write
+	       Full timestamps rewrite, keep only the start time for the first
+	       output frame.
+
+	   copy
+	       Non-dropped frames are left with same timestamp as input audio
+	       frame.
+
+	   Defaults value is "write".
 
        Examples
 
@@ -5238,6 +5863,26 @@ AUDIO FILTERS
 	   same positions in stream:
 
 		   silenceremove=window=0:detection=peak:stop_mode=all:start_mode=all:stop_periods=-1:stop_threshold=0
+
+       o   Trim every 2nd encountered silence period from beginning to end
+	   where there is more than 1 second of silence per silence period in
+	   audio:
+
+		   silenceremove=stop_periods=-2:stop_duration=1:stop_threshold=-90dB
+
+       o   Similar as above, but keep maximum of 0.5 seconds of silence from
+	   each trimmed period:
+
+		   silenceremove=stop_periods=-2:stop_duration=1:stop_threshold=-90dB:stop_silence=0.5
+
+       o   Similar as above, but keep maximum of 1.5 seconds of silence from
+	   start of audio:
+
+		   silenceremove=stop_periods=-2:stop_duration=1:stop_threshold=-90dB:stop_silence=0.5:start_periods=1:start_duration=1:start_silence=1.5:stop_threshold=-90dB
+
+       Commands
+
+       This filter supports some above options as commands.
 
    sofalizer
        SOFAlizer uses head-related transfer functions (HRTFs) to create
@@ -5396,9 +6041,36 @@ AUDIO FILTERS
 	   this option is enabled the minimum of all possible gains for each
 	   filtered channel is used.
 
+       rms, m
+	   Set the expansion target RMS value. This specifies the highest
+	   allowed RMS level for the normalized audio input. Default value is
+	   0.0, thus disabled. Allowed range is from 0.0 to 1.0.
+
        Commands
 
        This filter supports the all above options as commands.
+
+       Examples
+
+       o   Weak and slow amplification:
+
+		   speechnorm=e=3:r=0.00001:l=1
+
+       o   Moderate and slow amplification:
+
+		   speechnorm=e=6.25:r=0.00001:l=1
+
+       o   Strong and fast amplification:
+
+		   speechnorm=e=12.5:r=0.0001:l=1
+
+       o   Very strong and fast amplification:
+
+		   speechnorm=e=25:r=0.0001:l=1
+
+       o   Extreme and fast amplification:
+
+		   speechnorm=e=50:r=0.0001:l=1
 
    stereotools
        This filter has some handy utilities to manage stereo signals, for
@@ -5644,9 +6316,20 @@ AUDIO FILTERS
 	   but also all non-LFE output channels are subtracted with output LFE
 	   channel.
 
+       smooth
+	   Set temporal smoothness strength, used to gradually change factors
+	   when transforming stereo sound in time. Allowed range is from 0.0
+	   to 1.0.  Useful to improve output quality with focus option values
+	   greater than 0.0.  Default is 0.0. Only values inside this range
+	   and without edges are effective.
+
        angle
 	   Set angle of stereo surround transform, Allowed range is from 0 to
 	   360.  Default is 90.
+
+       focus
+	   Set focus of stereo surround transform, Allowed range is from -1 to
+	   1.  Default is 0.
 
        fc_in
 	   Set front center input volume. By default, this is 1.
@@ -5704,15 +6387,21 @@ AUDIO FILTERS
 
        allx
 	   Set spread usage of stereo image across X axis for all channels.
+	   Allowed range is from -1 to 15.  By default this value is negative
+	   -1, and thus unused.
 
        ally
 	   Set spread usage of stereo image across Y axis for all channels.
+	   Allowed range is from -1 to 15.  By default this value is negative
+	   -1, and thus unused.
 
        fcx, flx, frx, blx, brx, slx, srx, bcx
 	   Set spread usage of stereo image across X axis for each channel.
+	   Allowed range is from 0.06 to 15.  By default this value is 0.5.
 
        fcy, fly, fry, bly, bry, sly, sry, bcy
 	   Set spread usage of stereo image across Y axis for each channel.
+	   Allowed range is from 0.06 to 15.  By default this value is 0.5.
 
        win_size
 	   Set window size. Allowed range is from 1024 to 65536. Default size
@@ -5743,12 +6432,100 @@ AUDIO FILTERS
 	   parzen
 	   poisson
 	   bohman
+	   kaiser
 
 	   Default is "hann".
 
        overlap
 	   Set window overlap. If set to 1, the recommended overlap for
 	   selected window function will be picked. Default is 0.5.
+
+   tiltshelf
+       Boost or cut the lower frequencies and cut or boost higher frequencies
+       of the audio using a two-pole shelving filter with a response similar
+       to that of a standard hi-fi's tone-controls.  This is also known as
+       shelving equalisation (EQ).
+
+       The filter accepts the following options:
+
+       gain, g
+	   Give the gain at 0 Hz. Its useful range is about -20 (for a large
+	   cut) to +20 (for a large boost).  Beware of clipping when using a
+	   positive gain.
+
+       frequency, f
+	   Set the filter's central frequency and so can be used to extend or
+	   reduce the frequency range to be boosted or cut.  The default value
+	   is 3000 Hz.
+
+       width_type, t
+	   Set method to specify band-width of filter.
+
+	   h   Hz
+
+	   q   Q-Factor
+
+	   o   octave
+
+	   s   slope
+
+	   k   kHz
+
+       width, w
+	   Determine how steep is the filter's shelf transition.
+
+       poles, p
+	   Set number of poles. Default is 2.
+
+       mix, m
+	   How much to use filtered signal in output. Default is 1.  Range is
+	   between 0 and 1.
+
+       channels, c
+	   Specify which channels to filter, by default all available are
+	   filtered.
+
+       normalize, n
+	   Normalize biquad coefficients, by default is disabled.  Enabling it
+	   will normalize magnitude response at DC to 0dB.
+
+       transform, a
+	   Set transform type of IIR filter.
+
+	   di
+	   dii
+	   tdi
+	   tdii
+	   latt
+	   svf
+	   zdf
+       precision, r
+	   Set precison of filtering.
+
+	   auto
+	       Pick automatic sample format depending on surround filters.
+
+	   s16 Always use signed 16-bit.
+
+	   s32 Always use signed 32-bit.
+
+	   f32 Always use float 32-bit.
+
+	   f64 Always use float 64-bit.
+
+       block_size, b
+	   Set block size used for reverse IIR processing. If this value is
+	   set to high enough value (higher than impulse response length
+	   truncated when reaches near zero values) filtering will become
+	   linear phase otherwise if not big enough it will just produce nasty
+	   artifacts.
+
+	   Note that filter delay will be exactly this many samples when set
+	   to non-zero value.
+
+       Commands
+
+       This filter supports some options as commands.
 
    treble, highshelf
        Boost or cut treble (upper) frequencies of the audio using a two-pole
@@ -5803,9 +6580,11 @@ AUDIO FILTERS
 
 	   di
 	   dii
+	   tdi
 	   tdii
 	   latt
 	   svf
+	   zdf
        precision, r
 	   Set precison of filtering.
 
@@ -5819,6 +6598,16 @@ AUDIO FILTERS
 	   f32 Always use float 32-bit.
 
 	   f64 Always use float 64-bit.
+
+       block_size, b
+	   Set block size used for reverse IIR processing. If this value is
+	   set to high enough value (higher than impulse response length
+	   truncated when reaches near zero values) filtering will become
+	   linear phase otherwise if not big enough it will just produce nasty
+	   artifacts.
+
+	   Note that filter delay will be exactly this many samples when set
+	   to non-zero value.
 
        Commands
 
@@ -5863,6 +6652,25 @@ AUDIO FILTERS
 
        d   Depth of modulation as a percentage. Range is 0.0 - 1.0.  Default
 	   value is 0.5.
+
+   virtualbass
+       Apply audio Virtual Bass filter.
+
+       This filter accepts stereo input and produce stereo with LFE (2.1)
+       channels output.  The newly produced LFE channel have enhanced virtual
+       bass originally obtained from both stereo channels.  This filter
+       outputs front left and front right channels unchanged as available in
+       stereo input.
+
+       The filter accepts the following options:
+
+       cutoff
+	   Set the virtual bass cutoff frequency. Default value is 250 Hz.
+	   Allowed range is from 100 to 500 Hz.
+
+       strength
+	   Set the virtual bass strength. Allowed range is from 0.5 to 3.
+	   Default value is 3.
 
    volume
        Adjust the input audio volume.
@@ -5952,7 +6760,7 @@ AUDIO FILTERS
        nb_samples
 	   number of samples in the current frame
 
-       pos original frame position in the file
+       pos original frame position in the file; deprecated, do not use
 
        pts frame PTS
 
@@ -6011,9 +6819,10 @@ AUDIO FILTERS
    volumedetect
        Detect the volume of the input video.
 
-       The filter has no parameters. The input is not modified. Statistics
-       about the volume will be printed in the log when the input stream end
-       is reached.
+       The filter has no parameters. It supports only 16-bit signed integer
+       samples, so the input will be converted when needed. Statistics about
+       the volume will be printed in the log when the input stream end is
+       reached.
 
        In particular it will show the mean volume (root mean square), maximum
        volume (on a per-sample basis), and the beginning of a histogram of the
@@ -6166,6 +6975,94 @@ AUDIO SOURCES
        o   Generate 2.5 Hz binaural beats on a 360 Hz carrier:
 
 		   aevalsrc="0.1*sin(2*PI*(360-2.5/2)*t) | 0.1*sin(2*PI*(360+2.5/2)*t)"
+
+   afdelaysrc
+       Generate a fractional delay FIR coefficients.
+
+       The resulting stream can be used with afir filter for filtering the
+       audio signal.
+
+       The filter accepts the following options:
+
+       delay, d
+	   Set the fractional delay. Default is 0.
+
+       sample_rate, r
+	   Set the sample rate, default is 44100.
+
+       nb_samples, n
+	   Set the number of samples per each frame. Default is 1024.
+
+       taps, t
+	   Set the number of filter coefficents in output audio stream.
+	   Default value is 0.
+
+       channel_layout, c
+	   Specifies the channel layout, and can be a string representing a
+	   channel layout.  The default value of channel_layout is "stereo".
+
+   afireqsrc
+       Generate a FIR equalizer coefficients.
+
+       The resulting stream can be used with afir filter for filtering the
+       audio signal.
+
+       The filter accepts the following options:
+
+       preset, p
+	   Set equalizer preset.  Default preset is "flat".
+
+	   Available presets are:
+
+	   custom
+	   flat
+	   acoustic
+	   bass
+	   beats
+	   classic
+	   clear
+	   deep bass
+	   dubstep
+	   electronic
+	   hard-style
+	   hip-hop
+	   jazz
+	   metal
+	   movie
+	   pop
+	   r&b
+	   rock
+	   vocal booster
+       gains, g
+	   Set custom gains for each band. Only used if the preset option is
+	   set to "custom".  Gains are separated by white spaces and each gain
+	   is set in dBFS.  Default is "0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0".
+
+       bands, b
+	   Set the custom bands from where custon equalizer gains are set.
+	   This must be in strictly increasing order. Only used if the preset
+	   option is set to "custom".  Bands are separated by white spaces and
+	   each band represent frequency in Hz.  Default is "25 40 63 100 160
+	   250 400 630 1000 1600 2500 4000 6300 10000 16000 24000".
+
+       taps, t
+	   Set number of filter coefficents in output audio stream.  Default
+	   value is 4096.
+
+       sample_rate, r
+	   Set sample rate of output audio stream, default is 44100.
+
+       nb_samples, n
+	   Set number of samples per each frame in output audio stream.
+	   Default is 1024.
+
+       interp, i
+	   Set interpolation method for FIR equalizer coefficients. Can be
+	   "linear" or "cubic".
+
+       phase, h
+	   Set phase type of FIR filter. Can be "linear" or "min": minimum-
+	   phase.  Default is minimum-phase filter.
 
    afirsrc
        Generate a FIR coefficients using frequency sampling method.
@@ -6322,6 +7219,10 @@ AUDIO SOURCES
 
        nb_samples, n
 	   Set the number of samples per each output frame, default is 1024.
+
+       density
+	   Set the density (0.0 - 1.0) for the velvet noise generator, default
+	   is 0.05.
 
        Examples
 
@@ -6708,18 +7609,36 @@ VIDEO FILTERS
        If the specified expression is not valid, it is kept at its current
        value.
 
+   backgroundkey
+       Turns a static background into transparency.
+
+       The filter accepts the following option:
+
+       threshold
+	   Threshold for scene change detection.
+
+       similarity
+	   Similarity percentage with the background.
+
+       blend
+	   Set the blend amount for pixels that are not similar.
+
+       Commands
+
+       This filter supports the all above options as commands.
+
    bbox
        Compute the bounding box for the non-black pixels in the input frame
-       luminance plane.
+       luma plane.
 
        This filter computes the bounding box containing all the pixels with a
-       luminance value greater than the minimum allowed value.	The parameters
+       luma value greater than the minimum allowed value.  The parameters
        describing the bounding box are printed on the filter log.
 
        The filter accepts the following option:
 
        min_val
-	   Set the minimal luminance value. Default is 16.
+	   Set the minimal luma value. Default is 16.
 
        Commands
 
@@ -6744,6 +7663,41 @@ VIDEO FILTERS
        Commands
 
        This filter supports the all above options as commands.
+
+   bilateral_cuda
+       CUDA accelerated bilateral filter, an edge preserving filter.  This
+       filter is mathematically accurate thanks to the use of GPU
+       acceleration.  For best output quality, use one to one chroma
+       subsampling, i.e. yuv444p format.
+
+       The filter accepts the following options:
+
+       sigmaS
+	   Set sigma of gaussian function to calculate spatial weight, also
+	   called sigma space.	Allowed range is 0.1 to 512. Default is 0.1.
+
+       sigmaR
+	   Set sigma of gaussian function to calculate color range weight,
+	   also called sigma color.  Allowed range is 0.1 to 512. Default is
+	   0.1.
+
+       window_size
+	   Set window size of the bilateral function to determine the number
+	   of neighbours to loop on.  If the number entered is even, one will
+	   be added automatically.  Allowed range is 1 to 255. Default is 1.
+
+       Examples
+
+       o   Apply the bilateral filter on a video.
+
+		   ./ffmpeg -v verbose \
+		   -hwaccel cuda -hwaccel_output_format cuda -i input.mp4  \
+		   -init_hw_device cuda \
+		   -filter_complex \
+		   " \
+		   [0:v]scale_cuda=format=yuv444p[scaled_video];
+		   [scaled_video]bilateral_cuda=window_size=9:sigmaS=3.0:sigmaR=50.0" \
+		   -an -sn -c:v h264_nvenc -cq 20 out.mp4
 
    bitplanenoise
        Show and measure bit plane noise.
@@ -6794,15 +7748,15 @@ VIDEO FILTERS
        pixel_black_th, pix_th
 	   Set the threshold for considering a pixel "black".
 
-	   The threshold expresses the maximum pixel luminance value for which
-	   a pixel is considered "black". The provided value is scaled
-	   according to the following equation:
+	   The threshold expresses the maximum pixel luma value for which a
+	   pixel is considered "black". The provided value is scaled according
+	   to the following equation:
 
-		   <absolute_threshold> = <luminance_minimum_value> + <pixel_black_th> * <luminance_range_size>
+		   <absolute_threshold> = <luma_minimum_value> + <pixel_black_th> * <luma_range_size>
 
-	   luminance_range_size and luminance_minimum_value depend on the
-	   input video format, the range is [0-255] for YUV full-range formats
-	   and [16-235] for YUV non full-range formats.
+	   luma_range_size and luma_minimum_value depend on the input video
+	   format, the range is [0-255] for YUV full-range formats and
+	   [16-235] for YUV non full-range formats.
 
 	   Default value is 0.10.
 
@@ -6981,6 +7935,79 @@ VIDEO FILTERS
        Commands
 
        This filter supports same commands as options.
+
+   blockdetect
+       Determines blockiness of frames without altering the input frames.
+
+       Based on Remco Muijs and Ihor Kirenko: "A no-reference blocking
+       artifact measure for adaptive video processing." 2005 13th European
+       signal processing conference.
+
+       The filter accepts the following options:
+
+       period_min
+       period_max
+	   Set minimum and maximum values for determining pixel grids
+	   (periods).  Default values are [3,24].
+
+       planes
+	   Set planes to filter. Default is first only.
+
+       Examples
+
+       o   Determine blockiness for the first plane and search for periods
+	   within [8,32]:
+
+		   blockdetect=period_min=8:period_max=32:planes=1
+
+   blurdetect
+       Determines blurriness of frames without altering the input frames.
+
+       Based on Marziliano, Pina, et al. "A no-reference perceptual blur
+       metric."  Allows for a block-based abbreviation.
+
+       The filter accepts the following options:
+
+       low
+       high
+	   Set low and high threshold values used by the Canny thresholding
+	   algorithm.
+
+	   The high threshold selects the "strong" edge pixels, which are then
+	   connected through 8-connectivity with the "weak" edge pixels
+	   selected by the low threshold.
+
+	   low and high threshold values must be chosen in the range [0,1],
+	   and low should be lesser or equal to high.
+
+	   Default value for low is "20/255", and default value for high is
+	   "50/255".
+
+       radius
+	   Define the radius to search around an edge pixel for local maxima.
+
+       block_pct
+	   Determine blurriness only for the most significant blocks, given in
+	   percentage.
+
+       block_width
+	   Determine blurriness for blocks of width block_width. If set to any
+	   value smaller 1, no blocks are used and the whole image is
+	   processed as one no matter of block_height.
+
+       block_height
+	   Determine blurriness for blocks of height block_height. If set to
+	   any value smaller 1, no blocks are used and the whole image is
+	   processed as one no matter of block_width.
+
+       planes
+	   Set planes to filter. Default is first only.
+
+       Examples
+
+       o   Determine blur for 80% of most significant 32x32 blocks:
+
+		   blurdetect=block_width=32:block_height=32:block_pct=80
 
    bm3d
        Denoise frames using Block-Matching 3D algorithm.
@@ -7170,6 +8197,63 @@ VIDEO FILTERS
 
 	   The default value is "all".
 
+   bwdif_cuda
+       Deinterlace the input video using the bwdif algorithm, but implemented
+       in CUDA so that it can work as part of a GPU accelerated pipeline with
+       nvdec and/or nvenc.
+
+       It accepts the following parameters:
+
+       mode
+	   The interlacing mode to adopt. It accepts one of the following
+	   values:
+
+	   0, send_frame
+	       Output one frame for each frame.
+
+	   1, send_field
+	       Output one frame for each field.
+
+	   The default value is "send_field".
+
+       parity
+	   The picture field parity assumed for the input interlaced video. It
+	   accepts one of the following values:
+
+	   0, tff
+	       Assume the top field is first.
+
+	   1, bff
+	       Assume the bottom field is first.
+
+	   -1, auto
+	       Enable automatic detection of field parity.
+
+	   The default value is "auto".  If the interlacing is unknown or the
+	   decoder does not export this information, top field first will be
+	   assumed.
+
+       deint
+	   Specify which frames to deinterlace. Accepts one of the following
+	   values:
+
+	   0, all
+	       Deinterlace all frames.
+
+	   1, interlaced
+	       Only deinterlace frames marked as interlaced.
+
+	   The default value is "all".
+
+   ccrepack
+       Repack CEA-708 closed captioning side data
+
+       This filter fixes various issues seen with commerical encoders related
+       to upstream malformed CEA-708 payloads, specifically incorrect number
+       of tuples (wrong cc_count for the target FPS), and incorrect ordering
+       of tuples (i.e. the CEA-608 tuples are not at the first entries in the
+       payload).
+
    cas
        Apply Contrast Adaptive Sharpen filter to video stream.
 
@@ -7262,6 +8346,40 @@ VIDEO FILTERS
        o   Overlay a greenscreen-video on top of a static black background.
 
 		   ffmpeg -f lavfi -i color=c=black:s=1280x720 -i video.mp4 -shortest -filter_complex "[1:v]chromakey=0x70de77:0.1:0.2[ckout];[0:v][ckout]overlay[out]" -map "[out]" output.mkv
+
+   chromakey_cuda
+       CUDA accelerated YUV colorspace color/chroma keying.
+
+       This filter works like normal chromakey filter but operates on CUDA
+       frames.	for more details and parameters see chromakey.
+
+       Examples
+
+       o   Make all the green pixels in the input video transparent and use it
+	   as an overlay for another video:
+
+		   ./ffmpeg \
+		       -hwaccel cuda -hwaccel_output_format cuda -i input_green.mp4  \
+		       -hwaccel cuda -hwaccel_output_format cuda -i base_video.mp4 \
+		       -init_hw_device cuda \
+		       -filter_complex \
+		       " \
+			   [0:v]chromakey_cuda=0x25302D:0.1:0.12:1[overlay_video]; \
+			   [1:v]scale_cuda=format=yuv420p[base]; \
+			   [base][overlay_video]overlay_cuda" \
+		       -an -sn -c:v h264_nvenc -cq 20 output.mp4
+
+       o   Process two software sources, explicitly uploading the frames:
+
+		   ./ffmpeg -init_hw_device cuda=cuda -filter_hw_device cuda \
+		       -f lavfi -i color=size=800x600:color=white,format=yuv420p \
+		       -f lavfi -i yuvtestsrc=size=200x200,format=yuv420p \
+		       -filter_complex \
+		       " \
+			   [0]hwupload[under]; \
+			   [1]hwupload,chromakey_cuda=green:0.1:0.12[over]; \
+			   [under][over]overlay_cuda" \
+		       -c:v hevc_nvenc -cq 18 -preset slow output.mp4
 
    chromanr
        Reduce chrominance noise.
@@ -7391,6 +8509,9 @@ VIDEO FILTERS
 
        gamma
 	   Set input gamma. Used only with XYZ input color space.
+
+       fill
+	   Fill with CIE colors. By default is enabled.
 
    codecview
        Visualize information exported by some codecs.
@@ -7529,7 +8650,7 @@ VIDEO FILTERS
        rh  Set the red highlight spot. Allowed range is from -1.0 to 1.0.
 	   Default value is 0.
 
-       bh  Set the red highlight spot. Allowed range is from -1.0 to 1.0.
+       bh  Set the blue highlight spot. Allowed range is from -1.0 to 1.0.
 	   Default value is 0.
 
        saturation
@@ -7799,6 +8920,38 @@ VIDEO FILTERS
        Commands
 
        This filter supports the all above options as commands.
+
+   colormap
+       Apply custom color maps to video stream.
+
+       This filter needs three input video streams.  First stream is video
+       stream that is going to be filtered out.  Second and third video stream
+       specify color patches for source color to target color mapping.
+
+       The filter accepts the following options:
+
+       patch_size
+	   Set the source and target video stream patch size in pixels.
+
+       nb_patches
+	   Set the max number of used patches from source and target video
+	   stream.  Default value is number of patches available in additional
+	   video streams.  Max allowed number of patches is 64.
+
+       type
+	   Set the adjustments used for target colors. Can be "relative" or
+	   "absolute".	Defaults is "absolute".
+
+       kernel
+	   Set the kernel used to measure color differences between mapped
+	   colors.
+
+	   The accepted values are:
+
+	   euclidean
+	   weuclidean
+
+	   Default is "euclidean".
 
    colormatrix
        Convert color matrix.
@@ -8082,6 +9235,30 @@ VIDEO FILTERS
 
 	       colorspace=smpte240m
 
+   colorspace_cuda
+       CUDA accelerated implementation of the colorspace filter.
+
+       It is by no means feature complete compared to the software colorspace
+       filter, and at the current time only supports color range conversion
+       between jpeg/full and mpeg/limited range.
+
+       The filter accepts the following options:
+
+       range
+	   Specify output color range.
+
+	   The accepted values are:
+
+	   tv  TV (restricted) range
+
+	   mpeg
+	       MPEG (restricted) range
+
+	   pc  PC (full) range
+
+	   jpeg
+	       JPEG (full) range
+
    colortemperature
        Adjust color temperature in video to simulate variations in ambient
        color temperature.
@@ -8279,6 +9456,28 @@ VIDEO FILTERS
 
 		   ffmpeg -f lavfi -i nullsrc=s=100x100,coreimage=filter=CIQRCodeGenerator@inputMessage=https\\\\\://FFmpeg.org/@inputCorrectionLevel=H -frames:v 1 QRCode.png
 
+   corr
+       Obtain the correlation between two input videos.
+
+       This filter takes two input videos.
+
+       Both input videos must have the same resolution and pixel format for
+       this filter to work correctly. Also it assumes that both inputs have
+       the same number of frames, which are compared one by one.
+
+       The obtained per component, average, min and max correlation is printed
+       through the logging system.
+
+       The filter stores the calculated correlation of each frame in frame
+       metadata.
+
+       This filter also supports the framesync options.
+
+       In the below example the input file main.mpg being processed is
+       compared with the reference file ref.mpg.
+
+	       ffmpeg -i main.mpg -i ref.mpg -lavfi corr -f null -
+
    cover_rect
        Cover a rectangular object
 
@@ -8374,7 +9573,8 @@ VIDEO FILTERS
 
        n   The number of the input frame, starting from 0.
 
-       pos the position in the file of the input frame, NAN if unknown
+       pos the position in the file of the input frame, NAN if unknown;
+	   deprecated, do not use
 
        t   The timestamp expressed in seconds. It's NAN if the input timestamp
 	   is unknown.
@@ -8439,7 +9639,7 @@ VIDEO FILTERS
 
        o   Apply erratic camera effect depending on timestamp:
 
-		   crop=in_w/2:in_h/2:(in_w-out_w)/2+((in_w-out_w)/2)*sin(t*10):(in_h-out_h)/2 +((in_h-out_h)/2)*sin(t*13)"
+		   crop=in_w/2:in_h/2:(in_w-out_w)/2+((in_w-out_w)/2)*sin(t*10):(in_h-out_h)/2 +((in_h-out_h)/2)*sin(t*13)
 
        o   Set x depending on the value of y:
 
@@ -8464,9 +9664,24 @@ VIDEO FILTERS
 
        It calculates the necessary cropping parameters and prints the
        recommended parameters via the logging system. The detected dimensions
-       correspond to the non-black area of the input video.
+       correspond to the non-black or video area of the input video according
+       to mode.
 
        It accepts the following parameters:
+
+       mode
+	   Depending on mode crop detection is based on either the mere black
+	   value of surrounding pixels or a combination of motion vectors and
+	   edge pixels.
+
+	   black
+	       Detect black pixels surrounding the playing video. For fine
+	       control use option limit.
+
+	   mvedges
+	       Detect the playing video by the motion vectors inside the video
+	       and scanning for edge pixels typically forming the border of a
+	       playing video.
 
        limit
 	   Set higher black value threshold, which can be optionally specified
@@ -8494,6 +9709,48 @@ VIDEO FILTERS
 	   This can be useful when channel logos distort the video area. 0
 	   indicates 'never reset', and returns the largest area encountered
 	   during playback.
+
+       mv_threshold
+	   Set motion in pixel units as threshold for motion detection. It
+	   defaults to 8.
+
+       low
+       high
+	   Set low and high threshold values used by the Canny thresholding
+	   algorithm.
+
+	   The high threshold selects the "strong" edge pixels, which are then
+	   connected through 8-connectivity with the "weak" edge pixels
+	   selected by the low threshold.
+
+	   low and high threshold values must be chosen in the range [0,1],
+	   and low should be lesser or equal to high.
+
+	   Default value for low is "5/255", and default value for high is
+	   "15/255".
+
+       Examples
+
+       o   Find video area surrounded by black borders:
+
+		   ffmpeg -i file.mp4 -vf cropdetect,metadata=mode=print -f null -
+
+       o   Find an embedded video area, generate motion vectors beforehand:
+
+		   ffmpeg -i file.mp4 -vf mestimate,cropdetect=mode=mvedges,metadata=mode=print -f null -
+
+       o   Find an embedded video area, use motion vectors from decoder:
+
+		   ffmpeg -flags2 +export_mvs -i file.mp4 -vf cropdetect=mode=mvedges,metadata=mode=print -f null -
+
+       Commands
+
+       This filter supports the following commands:
+
+       limit
+	   The command accepts the same syntax of the corresponding option.
+	   If the specified expression is not valid, it is kept at its current
+	   value.
 
    cue
        Delay video filtering until a given wallclock timestamp. The filter
@@ -8536,11 +9793,15 @@ VIDEO FILTERS
        "adjusted" to its own value, which means no change to the image.
 
        The filter allows you to redefine these two points and add some more. A
-       new curve (using a natural cubic spline interpolation) will be define
-       to pass smoothly through all these new coordinates. The new defined
-       points needs to be strictly increasing over the x-axis, and their x and
-       y values must be in the [0;1] interval.	If the computed curves
-       happened to go outside the vector spaces, the values will be clipped
+       new curve will be define to pass smoothly through all these new
+       coordinates. The new defined points needs to be strictly increasing
+       over the x-axis, and their x and y values must be in the [0;1]
+       interval. The curve is formed by using a natural or monotonic cubic
+       spline interpolation, depending on the interp option (default:
+       "natural"). The "natural" spline produces a smoother curve in general
+       while the monotonic ("pchip") spline guarantees the transitions between
+       the specified points to be monotonic. If the computed curves happened
+       to go outside the vector spaces, the values will be clipped
        accordingly.
 
        The filter accepts the following options:
@@ -8591,6 +9852,17 @@ VIDEO FILTERS
 
        plot
 	   Save Gnuplot script of the curves in specified file.
+
+       interp
+	   Specify the kind of interpolation. Available algorithms are:
+
+	   natural
+	       Natural cubic spline using a piece-wise cubic polynomial that
+	       is twice continuously differentiable.
+
+	   pchip
+	       Monotonic cubic spline using a piecewise cubic Hermite
+	       interpolating polynomial (PCHIP).
 
        To avoid some filtergraph syntax conflicts, each key points list need
        to be defined using the following syntax: "x0/y0 x1/y1 x2/y2 ...".
@@ -8901,6 +10173,11 @@ VIDEO FILTERS
 	   Set whether or not chroma is considered in the metric calculations.
 	   Default is 1.
 
+       mixed
+	   Set whether or not the input only partially contains content to be
+	   decimated.  Default is "false".  If enabled video output stream
+	   will be in variable frame rate.
+
    deconvolve
        Apply 2D deconvolution of video stream in frequency domain using second
        stream as impulse.
@@ -9060,9 +10337,6 @@ VIDEO FILTERS
        Training as well as model generation scripts are provided in the
        repository at <https://github.com/XueweiMeng/derain_filter.git>.
 
-       Native model files (.model) can be generated from TensorFlow model
-       files (.pb) by using tools/python/convert.py
-
        The filter accepts the following options:
 
        filter_type
@@ -9083,22 +10357,16 @@ VIDEO FILTERS
 	   Specify which DNN backend to use for model loading and execution.
 	   This option accepts the following values:
 
-	   native
-	       Native implementation of DNN loading and execution.
-
 	   tensorflow
 	       TensorFlow backend. To enable this backend you need to install
 	       the TensorFlow for C library (see
 	       <https://www.tensorflow.org/install/lang_c>) and configure
 	       FFmpeg with "--enable-libtensorflow"
 
-	   Default value is native.
-
        model
 	   Set path to model file specifying network architecture and its
 	   parameters.	Note that different backends use different file
-	   formats. TensorFlow and native backend can load files for only its
-	   format.
+	   formats. TensorFlow can load files for only its format.
 
        To get full functionality (such as async execution), please use the
        dnn_processing filter.
@@ -9393,9 +10661,6 @@ VIDEO FILTERS
 	   Specify which DNN backend to use for model loading and execution.
 	   This option accepts the following values:
 
-	   native
-	       Native implementation of DNN loading and execution.
-
 	   tensorflow
 	       TensorFlow backend. To enable this backend you need to install
 	       the TensorFlow for C library (see
@@ -9411,16 +10676,11 @@ VIDEO FILTERS
 	       the header files and libraries are not installed into system
 	       path)
 
-	   Default value is native.
-
        model
 	   Set path to model file specifying network architecture and its
 	   parameters.	Note that different backends use different file
-	   formats. TensorFlow, OpenVINO and native backend can load files for
-	   only its format.
-
-	   Native model file (.model) can be generated from TensorFlow model
-	   file (.pb) by using tools/python/convert.py
+	   formats. TensorFlow, OpenVINO backend can load files for only its
+	   format.
 
        input
 	   Set the input name of the dnn network.
@@ -9442,10 +10702,6 @@ VIDEO FILTERS
        o   Remove rain in rgb24 frame with can.pb (see derain filter):
 
 		   ./ffmpeg -i rain.jpg -vf format=rgb24,dnn_processing=dnn_backend=tensorflow:model=can.pb:input=x:output=y derain.jpg
-
-       o   Halve the pixel value of the frame with format gray32f:
-
-		   ffmpeg -i input.jpg -vf format=grayf32,dnn_processing=model=halve_gray_float.model:input=dnn_in:output=dnn_out:dnn_backend=native -y out.native.png
 
        o   Handle the Y channel with srcnn.pb (see sr filter) for frame with
 	   yuv420p (planar YUV formats supported):
@@ -9734,10 +10990,10 @@ VIDEO FILTERS
        using the libfreetype library.
 
        To enable compilation of this filter, you need to configure FFmpeg with
-       "--enable-libfreetype".	To enable default font fallback and the font
-       option you need to configure FFmpeg with "--enable-libfontconfig".  To
-       enable the text_shaping option, you need to configure FFmpeg with
-       "--enable-libfribidi".
+       "--enable-libfreetype" and "--enable-libharfbuzz".  To enable default
+       font fallback and the font option you need to configure FFmpeg with
+       "--enable-libfontconfig".  To enable the text_shaping option, you need
+       to configure FFmpeg with "--enable-libfribidi".
 
        Syntax
 
@@ -9749,7 +11005,23 @@ VIDEO FILTERS
 
        boxborderw
 	   Set the width of the border to be drawn around the box using
-	   boxcolor.  The default value of boxborderw is 0.
+	   boxcolor.  The value must be specified using one of the following
+	   formats:
+
+	   *<"boxborderw=10" set the width of all the borders to 10>
+	   *<"boxborderw=10|20" set the width of the top and bottom borders to
+	   10>
+		   and the width of the left and right borders to 20
+
+	   *<"boxborderw=10|20|30" set the width of the top border to 10, the
+	   width>
+		   of the bottom border to 30 and the width of the left and right borders to 20
+
+	   *<"boxborderw=10|20|30|40" set the borders width to 10 (top), 20
+	   (right),>
+		   30 (bottom), 40 (left)
+
+	   The default value of boxborderw is "0".
 
        boxcolor
 	   The color to be used for drawing box around text. For the syntax of
@@ -9758,8 +11030,28 @@ VIDEO FILTERS
 	   The default value of boxcolor is "white".
 
        line_spacing
-	   Set the line spacing in pixels of the border to be drawn around the
-	   box using box.  The default value of line_spacing is 0.
+	   Set the line spacing in pixels. The default value of line_spacing
+	   is 0.
+
+       text_align
+	   Set the vertical and horizontal alignment of the text with respect
+	   to the box boundaries.  The value is combination of flags, one for
+	   the vertical alignment (T=top, M=middle, B=bottom) and one for the
+	   horizontal alignment (L=left, C=center, R=right).  Please note that
+	   tab characters are only supported with the left horizontal
+	   alignment.
+
+       y_align
+	   Specify what the y value is referred to. Possible values are:
+
+	   *<"text" the top of the highest glyph of the first text line is
+	   placed at y>
+	   *<"baseline" the baseline of the first text line is placed at y>
+	   *<"font" the baseline of the first text line is placed at y plus
+	   the>
+		   ascent (in pixels) defined in the font metrics
+
+	   The default value of y_align is "text" for backward compatibility.
 
        borderw
 	   Set the width of the border to be drawn around the text using
@@ -9779,7 +11071,7 @@ VIDEO FILTERS
 
        basetime
 	   Set a start time for the count. Value is in microseconds. Only
-	   applied in the deprecated strftime expansion mode. To emulate in
+	   applied in the deprecated "strftime" expansion mode. To emulate in
 	   normal expansion mode use the "pts" function, supplying the start
 	   time (in seconds) as the second argument.
 
@@ -9854,6 +11146,14 @@ VIDEO FILTERS
 
 	   The default value of shadowcolor is "black".
 
+       boxw
+	   Set the width of the box to be drawn around text.  The default
+	   value of boxw is computed automatically to match the text width
+
+       boxh
+	   Set the height of the box to be drawn around text.  The default
+	   value of boxh is computed automatically to match the text height
+
        shadowx
        shadowy
 	   The x and y offsets for the text shadow position with respect to
@@ -9905,9 +11205,9 @@ VIDEO FILTERS
 	   use this parameter if you are not sure about the text source.
 
        reload
-	   If set to 1, the textfile will be reloaded before each frame.  Be
-	   sure to update it atomically, or it may be read partially, or even
-	   fail.
+	   The textfile will be reloaded at specified frame interval.  Be sure
+	   to update textfile atomically, or it may be read partially, or even
+	   fail.  Range is 0 to INT_MAX. Default is 0.
 
        x
        y   The expressions which specify the offsets where text will be drawn
@@ -9958,6 +11258,18 @@ VIDEO FILTERS
 	   maximum glyph width, that is the maximum width for all the glyphs
 	   contained in the rendered text
 
+       font_a
+	   the ascent size defined in the font metrics
+
+       font_d
+	   the descent size defined in the font metrics
+
+       top_a
+	   the maximum ascender of the glyphs of the first text line
+
+       bottom_d
+	   the maximum descender of the glyphs of the last text line
+
        n   the number of input frame, starting from 0
 
        rand(min, max)
@@ -9988,7 +11300,7 @@ VIDEO FILTERS
 	   bytes, from the start of the input). A value of -1 indicates this
 	   info is not available.
 
-       pkt_duration
+       duration
 	   The current packet's duration, in seconds.
 
        pkt_size
@@ -9996,9 +11308,11 @@ VIDEO FILTERS
 
        Text expansion
 
-       If expansion is set to "strftime", the filter recognizes strftime()
-       sequences in the provided text and expands them accordingly. Check the
-       documentation of strftime(). This feature is deprecated.
+       If expansion is set to "strftime", the filter recognizes sequences
+       accepted by the "strftime" C function in the provided text and expands
+       them accordingly. Check the documentation of "strftime". This feature
+       is deprecated in favor of "normal" expansion with the "gmtime" or
+       "localtime" expansion functions.
 
        If expansion is set to "none", the text is printed verbatim.
 
@@ -10016,7 +11330,8 @@ VIDEO FILTERS
        Note that they probably must also be escaped as the value for the text
        option in the filter argument string and as the filter argument in the
        filtergraph description, and possibly also for the shell, that makes up
-       to four levels of escaping; using a text file avoids these problems.
+       to four levels of escaping; using a text file with the textfile option
+       avoids these problems.
 
        The following functions are available:
 
@@ -10041,11 +11356,17 @@ VIDEO FILTERS
 
        gmtime
 	   The time at which the filter is running, expressed in UTC.  It can
-	   accept an argument: a strftime() format string.
+	   accept an argument: a "strftime" C function format string.  The
+	   format string is extended to support the variable %[1-6]N which
+	   prints fractions of the second with optionally specified number of
+	   digits.
 
        localtime
 	   The time at which the filter is running, expressed in the local
-	   time zone.  It can accept an argument: a strftime() format string.
+	   time zone.  It can accept an argument: a "strftime" C function
+	   format string.  The format string is extended to support the
+	   variable %[1-6]N which prints fractions of the second with
+	   optionally specified number of digits.
 
        metadata
 	   Frame metadata. Takes one or two arguments.
@@ -10085,8 +11406,8 @@ VIDEO FILTERS
 	   format (00-23).
 
 	   If the format is set to "localtime" or "gmtime", a third argument
-	   may be supplied: a strftime() format string.  By default, YYYY-MM-
-	   DD HH:MM:SS format will be used.
+	   may be supplied: a "strftime" C function format string.  By
+	   default, YYYY-MM-DD HH:MM:SS format will be used.
 
        Commands
 
@@ -10103,8 +11424,28 @@ VIDEO FILTERS
 
 		   sendcmd=c='56.0 drawtext reinit fontsize=56\:fontcolor=green\:text=Hello\\ World'
 
-       If the entire argument can't be parsed or applied as valid values then
-       the filter will continue with its existing parameters.
+	   If the entire argument can't be parsed or applied as valid values
+	   then the filter will continue with its existing parameters.
+
+       The following options are also supported as commands:
+
+       *<x>
+       *<y>
+       *<alpha>
+       *<fontsize>
+       *<fontcolor>
+       *<boxcolor>
+       *<bordercolor>
+       *<shadowcolor>
+       *<box>
+       *<boxw>
+       *<boxh>
+       *<boxborderw>
+       *<line_spacing>
+       *<text_align>
+       *<shadowx>
+       *<shadowy>
+       *<borderw>
 
        Examples
 
@@ -10162,7 +11503,8 @@ VIDEO FILTERS
 
 		   drawtext="text='Test Text': fontsize=h/30: x=(w-text_w)/2: y=(h-text_h*2)"
 
-       o   Print the date of a real-time encoding (see strftime(3)):
+       o   Print the date of a real-time encoding (see documentation for the
+	   "strftime" C function):
 
 		   drawtext='fontfile=FreeSans.ttf:text=%{localtime\:%a %b %d %Y}'
 
@@ -10195,6 +11537,9 @@ VIDEO FILTERS
        <http://freedesktop.org/software/fontconfig/fontconfig-user.html>.
 
        For more information about libfribidi, check: <http://fribidi.org/>.
+
+       For more information about libharfbuzz, check:
+       <https://github.com/harfbuzz/harfbuzz>.
 
    edgedetect
        Detect and draw edges. The filter uses the Canny Edge Detection
@@ -10360,7 +11705,7 @@ VIDEO FILTERS
        n   frame count of the input frame starting from 0
 
        pos byte position of the corresponding packet in the input file, NAN if
-	   unspecified
+	   unspecified; deprecated, do not use
 
        r   frame rate of the input video, NAN if the input frame rate is
 	   unknown
@@ -10483,16 +11828,16 @@ VIDEO FILTERS
 	   2.  Allowed range is from 0 to 15.
 
        ecost
-	   Specify the edge cost for edge matching. Default value is 0.03125.
-	   Allowed range is from 0 to 1.
+	   Specify the edge cost for edge matching. Default value is 2.
+	   Allowed range is from 0 to 50.
 
        mcost
-	   Specify the middle cost for edge matching. Default value is 0.5.
-	   Allowed range is from 0 to 1.
+	   Specify the middle cost for edge matching. Default value is 1.
+	   Allowed range is from 0 to 50.
 
        dcost
-	   Specify the distance cost for edge matching. Default value is 0.5.
-	   Allowed range is from 0 to 1.
+	   Specify the distance cost for edge matching. Default value is 1.
+	   Allowed range is from 0 to 50.
 
        interp
 	   Specify the interpolation used. Default is 4-point interpolation.
@@ -10626,6 +11971,41 @@ VIDEO FILTERS
 
 		   fade=t=in:st=5.5:d=0.5
 
+   feedback
+       Apply feedback video filter.
+
+       This filter pass cropped input frames to 2nd output.  From there it can
+       be filtered with other video filters.  After filter receives frame from
+       2nd input, that frame is combined on top of original frame from 1st
+       input and passed to 1st output.
+
+       The typical usage is filter only part of frame.
+
+       The filter accepts the following options:
+
+       x
+       y   Set the top left crop position.
+
+       w
+       h   Set the crop size.
+
+       Examples
+
+       o   Blur only top left rectangular part of video frame size 100x100
+	   with gblur filter.
+
+		   [in][blurin]feedback=x=0:y=0:w=100:h=100[out][blurout];[blurout]gblur=8[blurin]
+
+       o   Draw black box on top left part of video frame of size 100x100 with
+	   drawbox filter.
+
+		   [in][blurin]feedback=x=0:y=0:w=100:h=100[out][blurout];[blurout]drawbox=x=0:y=0:w=100:h=100:t=100[blurin]
+
+       o   Pixelize rectangular part of video frame of size 100x100 with
+	   pixelize filter.
+
+		   [in][blurin]feedback=x=320:y=240:w=100:h=100[out][blurout];[blurout]pixelize[blurin]
+
    fftdnoiz
        Denoise frames using 3D FFT (frequency domain filtering).
 
@@ -10641,13 +12021,14 @@ VIDEO FILTERS
 	   Default value is 1. Allowed range is from 0 to 1.
 
        block
-	   Set size of block, Default is 4, can be 3, 4, 5 or 6.  Actual size
-	   of block in pixels is 2 to power of block, so by default block size
-	   in pixels is 2^4 which is 16.
+	   Set size of block in pixels, Default is 32, can be 8 to 256.
 
        overlap
 	   Set block overlap. Default is 0.5. Allowed range is from 0.2 to
 	   0.8.
+
+       method
+	   Set denoising method. Default is "wiener", can also be "hard".
 
        prev
 	   Set number of previous frames to use for denoising. By default is
@@ -10769,7 +12150,10 @@ VIDEO FILTERS
 	   "#" or ";" that line is skipped.
 
        mode
-	   Can be item "absolute" or "relative". Default is "absolute".
+	   Can be item "absolute" or "relative" or "pattern". Default is
+	   "absolute".	The "pattern" mode is same as "relative" mode, except
+	   at last entry of file if there are more frames to process than
+	   "hint" file is seek back to start.
 
        Example of first several lines of "hint" file for "relative" mode:
 
@@ -11200,7 +12584,34 @@ VIDEO FILTERS
        value.
 
    find_rect
-       Find a rectangular object
+       Find a rectangular object in the input video.
+
+       The object to search for must be specified as a gray8 image specified
+       with the object option.
+
+       For each possible match, a score is computed. If the score reaches the
+       specified threshold, the object is considered found.
+
+       If the input video contains multiple instances of the object, the
+       filter will find only one of them.
+
+       When an object is found, the following metadata entries are set in the
+       matching frame:
+
+       lavfi.rect.w
+	   width of object
+
+       lavfi.rect.h
+	   height of object
+
+       lavfi.rect.x
+	   x position of object
+
+       lavfi.rect.y
+	   y position of object
+
+       lavfi.rect.score
+	   match score of the found object
 
        It accepts the following options:
 
@@ -11208,7 +12619,13 @@ VIDEO FILTERS
 	   Filepath of the object image, needs to be in gray8.
 
        threshold
-	   Detection threshold, default is 0.5.
+	   Detection threshold, expressed as a decimal number in the range
+	   0-1.
+
+	   A threshold value of 0.01 means only exact matches, a threshold of
+	   0.99 means almost everything matches.
+
+	   Default value is 0.5.
 
        mipmaps
 	   Number of mipmaps, default is 3.
@@ -11225,6 +12642,13 @@ VIDEO FILTERS
 	   using ffmpeg:
 
 		   ffmpeg -i file.ts -vf find_rect=newref.pgm,cover_rect=cover.jpg:mode=cover new.mkv
+
+       o   Find the position of an object in each frame using ffprobe and
+	   write it to a log file:
+
+		   ffprobe -f lavfi movie=test.mp4,find_rect=object=object.pgm:threshold=0.3 \
+		     -show_entries frame=pkt_pts_time:frame_tags=lavfi.rect.x,lavfi.rect.y \
+		     -of csv -o find_rect.csv
 
    floodfill
        Flood area with values of same pixel components with another values.
@@ -11598,7 +13022,7 @@ VIDEO FILTERS
        The filter accepts the following options:
 
        lum_expr, lum
-	   Set the luminance expression.
+	   Set the luma expression.
 
        cb_expr, cb
 	   Set the chrominance blue expression.
@@ -11627,7 +13051,7 @@ VIDEO FILTERS
        If one of the chrominance expression is not defined, it falls back on
        the other one. If no alpha expression is specified it will evaluate to
        opaque value.  If none of chrominance expressions are specified, they
-       will evaluate to the luminance expression.
+       will evaluate to the luma expression.
 
        The expressions can use the following variables and functions:
 
@@ -11652,8 +13076,7 @@ VIDEO FILTERS
 	   plane.
 
        lum(x, y)
-	   Return the value of the pixel at location (x,y) of the luminance
-	   plane.
+	   Return the value of the pixel at location (x,y) of the luma plane.
 
        cb(x, y)
 	   Return the value of the pixel at location (x,y) of the blue-
@@ -11776,13 +13199,34 @@ VIDEO FILTERS
 	   Set video opacity. Default is 0.9. Allowed range is from 0 to 1.
 
        mode, m
-	   Set output mode, can be fulll or compact.  In compact mode only
-	   filters with some queued frames have displayed stats.
+	   Set output mode flags.
+
+	   Available values for flags are:
+
+	   full
+	       No any filtering. Default.
+
+	   compact
+	       Show only filters with queued frames.
+
+	   nozero
+	       Show only filters with non-zero stats.
+
+	   noeof
+	       Show only filters with non-eof stat.
+
+	   nodisabled
+	       Show only filters that are enabled in timeline.
 
        flags, f
 	   Set flags which enable which stats are shown in video.
 
 	   Available values for flags are:
+
+	   none
+	       All flags turned off.
+
+	   all All flags turned on.
 
 	   queue
 	       Display number of queued frames in each link.
@@ -11793,10 +13237,19 @@ VIDEO FILTERS
 	   frame_count_out
 	       Display number of frames given out from filter.
 
+	   frame_count_delta
+	       Display delta number of frames between above two values.
+
 	   pts Display current filtered frame pts.
+
+	   pts_delta
+	       Display pts delta between current and previous frame.
 
 	   time
 	       Display current filtered frame time.
+
+	   time_delta
+	       Display time delta between current and previous frame.
 
 	   timebase
 	       Display time base for filter link.
@@ -11819,6 +13272,12 @@ VIDEO FILTERS
 
 	   sample_count_out
 	       Display number of samples given out from filter.
+
+	   sample_count_delta
+	       Display delta number of samples between above two values.
+
+	   disabled
+	       Show the timeline filter status.
 
        rate, r
 	   Set upper limit for video rate of output stream, Default value is
@@ -11923,6 +13382,10 @@ VIDEO FILTERS
        stream.
 
        The filter accepts the following options:
+
+       clut
+	   Set which CLUT video frames will be processed from second input
+	   stream, can be first or all. Default is all.
 
        shortest
 	   Force termination when the shortest input terminates. Default is 0.
@@ -12496,6 +13959,36 @@ VIDEO FILTERS
 
        The "hysteresis" filter also supports the framesync options.
 
+   iccdetect
+       Detect the colorspace  from an embedded ICC profile (if present), and
+       update the frame's tags accordingly.
+
+       This filter accepts the following options:
+
+       force
+	   If true, the frame's existing colorspace tags will always be
+	   overridden by values detected from an ICC profile. Otherwise, they
+	   will only be assigned if they contain "unknown". Enabled by
+	   default.
+
+   iccgen
+       Generate ICC profiles and attach them to frames.
+
+       This filter accepts the following options:
+
+       color_primaries
+       color_trc
+	   Configure the colorspace that the ICC profile will be generated
+	   for. The default value of "auto" infers the value from the input
+	   frame's metadata, defaulting to BT.709/sRGB as appropriate.
+
+	   See the setparams filter for a list of possible values, but note
+	   that "unknown" are not valid values for this filter.
+
+       force
+	   If true, an ICC profile will be generated even if it would
+	   overwrite an already existing ICC profile. Disabled by default.
+
    identity
        Obtain the identity score between two input videos.
 
@@ -12510,6 +14003,8 @@ VIDEO FILTERS
 
        The filter stores the calculated identity scores of each frame in frame
        metadata.
+
+       This filter also supports the framesync options.
 
        In the below example the input file main.mpg being processed is
        compared with the reference file ref.mpg.
@@ -12852,6 +14347,14 @@ VIDEO FILTERS
        and lens models (logged with level "info"). You must provide the make,
        camera model, and lens model as they are required.
 
+       To obtain a list of available makes and models, leave out one or both
+       of "make" and "model" options. The filter will send the full list to
+       the log with level "INFO".  The first column is the make and the second
+       column is the model.  To obtain a list of available lenses, set any
+       values for make and model and leave out the "lens_model" option. The
+       filter will send the full list of lenses in the log with level "INFO".
+       The ffmpeg tool will exit after the list is printed.
+
        The filter accepts the following options:
 
        make
@@ -12865,6 +14368,11 @@ VIDEO FILTERS
        lens_model
 	   The model of the lens (for example, "Canon EF-S 18-55mm f/3.5-5.6
 	   IS STM"). This option is required.
+
+       db_path
+	   The full path to the lens database folder. If not set, the filter
+	   will attempt to load the database from the install path when the
+	   library was built. Default is unset.
 
        mode
 	   The type of correction to apply. The following values are valid
@@ -12953,83 +14461,724 @@ VIDEO FILTERS
 
 		   ffmpeg -i input.mov -vf lensfun=make=Canon:model="Canon EOS 100D":lens_model="Canon EF-S 18-55mm f/3.5-5.6 IS STM":focal_length=18:aperture=8:enable='lte(t\,5)' -c:v h264 -b:v 8000k output.mov
 
-   libvmaf
-       Obtain the VMAF (Video Multi-Method Assessment Fusion) score between
-       two input videos.
+   libplacebo
+       Flexible GPU-accelerated processing filter based on libplacebo
+       (<https://code.videolan.org/videolan/libplacebo>).
 
-       The first input is the encoded video, and the second input is the
+       Options
+
+       The options for this filter are divided into the following sections:
+
+       Output mode
+
+       These options control the overall output mode. By default, libplacebo
+       will try to preserve the source colorimetry and size as best as it can,
+       but it will apply any embedded film grain, dolby vision metadata or
+       anamorphic SAR present in source frames.
+
+       inputs
+	   Set the number of inputs. This can be used, alongside the "idx"
+	   variable, to allow placing/blending multiple inputs inside the
+	   output frame. This effectively enables functionality similar to
+	   hstack, overlay, etc.
+
+       w
+       h   Set the output video dimension expression. Default values are "iw"
+	   and "ih".
+
+	   Allows for the same expressions as the scale filter.
+
+       crop_x
+       crop_y
+	   Set the input crop x/y expressions, default values are "(iw-cw)/2"
+	   and "(ih-ch)/2".
+
+       crop_w
+       crop_h
+	   Set the input crop width/height expressions, default values are
+	   "iw" and "ih".
+
+       pos_x
+       pos_y
+	   Set the output placement x/y expressions, default values are
+	   "(ow-pw)/2" and "(oh-ph)/2".
+
+       pos_w
+       pos_h
+	   Set the output placement width/height expressions, default values
+	   are "ow" and "oh".
+
+       fps Set the output frame rate. This can be rational, e.g. "60000/1001".
+	   If set to the special string "none" (the default), input timestamps
+	   will instead be passed through to the output unmodified. Otherwise,
+	   the input video frames will be interpolated as necessary to rescale
+	   the video to the specified target framerate, in a manner as
+	   determined by the frame_mixer option.
+
+       format
+	   Set the output format override. If unset (the default), frames will
+	   be output in the same format as the respective input frames.
+	   Otherwise, format conversion will be performed.
+
+       force_original_aspect_ratio
+       force_divisible_by
+	   Work the same as the identical scale filter options.
+
+       normalize_sar
+	   If enabled, output frames will always have a pixel aspect ratio of
+	   1:1. This will introduce additional padding/cropping as necessary.
+	   If disabled (the default), any aspect ratio mismatches, including
+	   those from e.g. anamorphic video sources, are forwarded to the
+	   output pixel aspect ratio.
+
+       pad_crop_ratio
+	   Specifies a ratio (between 0.0 and 1.0) between padding and
+	   cropping when the input aspect ratio does not match the output
+	   aspect ratio and normalize_sar is in effect. The default of 0.0
+	   always pads the content with black borders, while a value of 1.0
+	   always crops off parts of the content. Intermediate values are
+	   possible, leading to a mix of the two approaches.
+
+       fillcolor
+	   Set the color used to fill the output area not covered by the
+	   output image, for example as a result of normalize_sar. For the
+	   general syntax of this option, check the "Color" section in the
+	   ffmpeg-utils manual. Defaults to "black".
+
+       corner_rounding
+	   Render frames with rounded corners. The value, given as a float
+	   ranging from 0.0 to 1.0, indicates the relative degree of rounding,
+	   from fully square to fully circular. In other words, it gives the
+	   radius divided by half the smaller side length. Defaults to 0.0.
+
+       extra_opts
+	   Pass extra libplacebo internal configuration options. These can be
+	   specified as a list of key=value pairs separated by ':'. The
+	   following example shows how to configure a custom filter kernel
+	   ("EWA LanczosSharp") and use it to double the input image
+	   resolution:
+
+		   -vf "libplacebo=w=iw*2:h=ih*2:extra_opts='upscaler=custom\:upscaler_preset=ewa_lanczos\:upscaler_blur=0.9812505644269356'"
+
+       colorspace
+       color_primaries
+       color_trc
+       range
+	   Configure the colorspace that output frames will be delivered in.
+	   The default value of "auto" outputs frames in the same format as
+	   the input frames, leading to no change. For any other value,
+	   conversion will be performed.
+
+	   See the setparams filter for a list of possible values.
+
+       apply_filmgrain
+	   Apply film grain (e.g. AV1 or H.274) if present in source frames,
+	   and strip it from the output. Enabled by default.
+
+       apply_dolbyvision
+	   Apply Dolby Vision RPU metadata if present in source frames, and
+	   strip it from the output. Enabled by default. Note that Dolby
+	   Vision will always output BT.2020+PQ, overriding the usual input
+	   frame metadata. These will also be picked as the values of "auto"
+	   for the respective frame output options.
+
+       In addition to the expression constants documented for the scale
+       filter, the crop_w, crop_h, crop_x, crop_y, pos_w, pos_h, pos_x and
+       pos_y options can also contain the following constants:
+
+       in_idx, idx
+	   The (0-based) numeric index of the currently active input stream.
+
+       crop_w, cw
+       crop_h, ch
+	   The computed values of crop_w and crop_h.
+
+       pos_w, pw
+       pos_h, ph
+	   The computed values of pos_w and pos_h.
+
+       in_t, t
+	   The input frame timestamp, in seconds. NAN if input timestamp is
+	   unknown.
+
+       out_t, ot
+	   The input frame timestamp, in seconds. NAN if input timestamp is
+	   unknown.
+
+       n   The input frame number, starting with 0.
+
+       Scaling
+
+       The options in this section control how libplacebo performs upscaling
+       and (if necessary) downscaling. Note that libplacebo will always
+       internally operate on 4:4:4 content, so any sub-sampled chroma formats
+       such as "yuv420p" will necessarily be upsampled and downsampled as part
+       of the rendering process. That means scaling might be in effect even if
+       the source and destination resolution are the same.
+
+       upscaler
+       downscaler
+	   Configure the filter kernel used for upscaling and downscaling. The
+	   respective defaults are "spline36" and "mitchell". For a full list
+	   of possible values, pass "help" to these options. The most
+	   important values are:
+
+	   none
+	       Forces the use of built-in GPU texture sampling (typically
+	       bilinear). Extremely fast but poor quality, especially when
+	       downscaling.
+
+	   bilinear
+	       Bilinear interpolation. Can generally be done for free on GPUs,
+	       except when doing so would lead to aliasing. Fast and low
+	       quality.
+
+	   nearest
+	       Nearest-neighbour interpolation. Sharp but highly aliasing.
+
+	   oversample
+	       Algorithm that looks visually similar to nearest-neighbour
+	       interpolation but tries to preserve pixel aspect ratio. Good
+	       for pixel art, since it results in minimal distortion of the
+	       artistic appearance.
+
+	   lanczos
+	       Standard sinc-sinc interpolation kernel.
+
+	   spline36
+	       Cubic spline approximation of lanczos. No difference in
+	       performance, but has very slightly less ringing.
+
+	   ewa_lanczos
+	       Elliptically weighted average version of lanczos, based on a
+	       jinc-sinc kernel.  This is also popularly referred to as just
+	       "Jinc scaling". Slow but very high quality.
+
+	   gaussian
+	       Gaussian kernel. Has certain ideal mathematical properties, but
+	       subjectively very blurry.
+
+	   mitchell
+	       Cubic BC spline with parameters recommended by Mitchell and
+	       Netravali. Very little ringing.
+
+       frame_mixer
+	   Controls the kernel used for mixing frames temporally. The default
+	   value is "none", which disables frame mixing. For a full list of
+	   possible values, pass "help" to this option. The most important
+	   values are:
+
+	   none
+	       Disables frame mixing, giving a result equivalent to "nearest
+	       neighbour" semantics.
+
+	   oversample
+	       Oversamples the input video to create a "Smooth Motion"-type
+	       effect: if an output frame would exactly fall on the transition
+	       between two video frames, it is blended according to the
+	       relative overlap. This is the recommended option whenever
+	       preserving the original subjective appearance is desired.
+
+	   mitchell_clamp
+	       Larger filter kernel that smoothly interpolates multiple frames
+	       in a manner designed to eliminate ringing and other artefacts
+	       as much as possible. This is the recommended option wherever
+	       maximum visual smoothness is desired.
+
+	   linear
+	       Linear blend/fade between frames. Especially useful for
+	       constructing e.g.  slideshows.
+
+       lut_entries
+	   Configures the size of scaler LUTs, ranging from 1 to 256. The
+	   default of 0 will pick libplacebo's internal default, typically 64.
+
+       antiringing
+	   Enables anti-ringing (for non-EWA filters). The value (between 0.0
+	   and 1.0) configures the strength of the anti-ringing algorithm. May
+	   increase aliasing if set too high. Disabled by default.
+
+       sigmoid
+	   Enable sigmoidal compression during upscaling. Reduces ringing
+	   slightly.  Enabled by default.
+
+       Debanding
+
+       Libplacebo comes with a built-in debanding filter that is good at
+       counteracting many common sources of banding and blocking. Turning this
+       on is highly recommended whenever quality is desired.
+
+       deband
+	   Enable (fast) debanding algorithm. Disabled by default.
+
+       deband_iterations
+	   Number of deband iterations of the debanding algorithm. Each
+	   iteration is performed with progressively increased radius (and
+	   diminished threshold).  Recommended values are in the range 1 to 4.
+	   Defaults to 1.
+
+       deband_threshold
+	   Debanding filter strength. Higher numbers lead to more aggressive
+	   debanding.  Defaults to 4.0.
+
+       deband_radius
+	   Debanding filter radius. A higher radius is better for slow
+	   gradients, while a lower radius is better for steep gradients.
+	   Defaults to 16.0.
+
+       deband_grain
+	   Amount of extra output grain to add. Helps hide imperfections.
+	   Defaults to 6.0.
+
+       Color adjustment
+
+       A collection of subjective color controls. Not very rigorous, so the
+       exact effect will vary somewhat depending on the input primaries and
+       colorspace.
+
+       brightness
+	   Brightness boost, between "-1.0" and 1.0. Defaults to 0.0.
+
+       contrast
+	   Contrast gain, between 0.0 and 16.0. Defaults to 1.0.
+
+       saturation
+	   Saturation gain, between 0.0 and 16.0. Defaults to 1.0.
+
+       hue Hue shift in radians, between "-3.14" and 3.14. Defaults to 0.0.
+	   This will rotate the UV subvector, defaulting to BT.709
+	   coefficients for RGB inputs.
+
+       gamma
+	   Gamma adjustment, between 0.0 and 16.0. Defaults to 1.0.
+
+       cones
+	   Cone model to use for color blindness simulation. Accepts any
+	   combination of "l", "m" and "s". Here are some examples:
+
+	   m   Deuteranomaly / deuteranopia (affecting 3%-4% of the
+	       population)
+
+	   l   Protanomaly / protanopia (affecting 1%-2% of the population)
+
+	   l+m Monochromacy (very rare)
+
+	   l+m+s
+	       Achromatopsy (complete loss of daytime vision, extremely rare)
+
+       cone-strength
+	   Gain factor for the cones specified by "cones", between 0.0 and
+	   10.0. A value of 1.0 results in no change to color vision. A value
+	   of 0.0 (the default) simulates complete loss of those cones. Values
+	   above 1.0 result in exaggerating the differences between cones,
+	   which may help compensate for reduced color vision.
+
+       Peak detection
+
+       To help deal with sources that only have static HDR10 metadata (or no
+       tagging whatsoever), libplacebo uses its own internal frame analysis
+       compute shader to analyze source frames and adapt the tone mapping
+       function in realtime. If this is too slow, or if exactly reproducible
+       frame-perfect results are needed, it's recommended to turn this feature
+       off.
+
+       peak_detect
+	   Enable HDR peak detection. Ignores static MaxCLL/MaxFALL values in
+	   favor of dynamic detection from the input. Note that the detected
+	   values do not get written back to the output frames, they merely
+	   guide the internal tone mapping process. Enabled by default.
+
+       smoothing_period
+	   Peak detection smoothing period, between 0.0 and 1000.0. Higher
+	   values result in peak detection becoming less responsive to changes
+	   in the input. Defaults to 100.0.
+
+       minimum_peak
+	   Lower bound on the detected peak (relative to SDR white), between
+	   0.0 and 100.0. Defaults to 1.0.
+
+       scene_threshold_low
+       scene_threshold_high
+	   Lower and upper thresholds for scene change detection. Expressed in
+	   a logarithmic scale between 0.0 and 100.0. Default to 5.5 and 10.0,
+	   respectively. Setting either to a negative value disables this
+	   functionality.
+
+       percentile
+	   Which percentile of the frame brightness histogram to use as the
+	   source peak for tone-mapping. Defaults to 99.995, a fairly
+	   conservative value.	Setting this to 100.0 disables frame histogram
+	   measurement and instead uses the true peak brightness for tone-
+	   mapping.
+
+       Tone mapping
+
+       The options in this section control how libplacebo performs tone-
+       mapping and gamut-mapping when dealing with mismatches between wide-
+       gamut or HDR content.  In general, libplacebo relies on accurate source
+       tagging and mastering display gamut information to produce the best
+       results.
+
+       gamut_mode
+	   How to handle out-of-gamut colors that can occur as a result of
+	   colorimetric gamut mapping.
+
+	   clip
+	       Do nothing, simply clip out-of-range colors to the RGB volume.
+	       Low quality but extremely fast.
+
+	   perceptual
+	       Perceptually soft-clip colors to the gamut volume. This is the
+	       default.
+
+	   relative
+	       Relative colorimetric hard-clip. Similar to "perceptual" but
+	       without the soft knee.
+
+	   saturation
+	       Saturation mapping, maps primaries directly to primaries in RGB
+	       space.  Not recommended except for artificial computer graphics
+	       for which a bright, saturated display is desired.
+
+	   absolute
+	       Absolute colorimetric hard-clip. Performs no adjustment of the
+	       white point.
+
+	   desaturate
+	       Hard-desaturates out-of-gamut colors towards white, while
+	       preserving the luminance. Has a tendency to distort the visual
+	       appearance of bright objects.
+
+	   darken
+	       Linearly reduces content brightness to preserves saturated
+	       details, followed by clipping the remaining out-of-gamut
+	       colors.
+
+	   warn
+	       Highlight out-of-gamut pixels (by inverting/marking them).
+
+	   linear
+	       Linearly reduces chromaticity of the entire image to make it
+	       fit within the target color volume. Be careful when using this
+	       on BT.2020 sources without proper mastering metadata, as doing
+	       so will lead to excessive desaturation.
+
+       tonemapping
+	   Tone-mapping algorithm to use. Available values are:
+
+	   auto
+	       Automatic selection based on internal heuristics. This is the
+	       default.
+
+	   clip
+	       Performs no tone-mapping, just clips out-of-range colors.
+	       Retains perfect color accuracy for in-range colors but
+	       completely destroys out-of-range information.  Does not perform
+	       any black point adaptation. Not configurable.
+
+	   st2094-40
+	       EETF from SMPTE ST 2094-40 Annex B, which applies the Bezier
+	       curves from HDR10+ dynamic metadata based on Bezier curves to
+	       perform tone-mapping. The OOTF used is adjusted based on the
+	       ratio between the targeted and actual display peak luminances.
+
+	   st2094-10
+	       EETF from SMPTE ST 2094-10 Annex B.2, which takes into account
+	       the input signal average luminance in addition to the
+	       maximum/minimum. The configurable contrast parameter influences
+	       the slope of the linear output segment, defaulting to 1.0 for
+	       no increase/decrease in contrast. Note that this does not
+	       currently include the subjective gain/offset/gamma controls
+	       defined in Annex B.3.
+
+	   bt.2390
+	       EETF from the ITU-R Report BT.2390, a hermite spline roll-off
+	       with linear segment. The knee point offset is configurable.
+	       Note that this parameter defaults to 1.0, rather than the value
+	       of 0.5 from the ITU-R spec.
+
+	   bt.2446a
+	       EETF from ITU-R Report BT.2446, method A. Designed for well-
+	       mastered HDR sources. Can be used for both forward and inverse
+	       tone mapping. Not configurable.
+
+	   spline
+	       Simple spline consisting of two polynomials, joined by a single
+	       pivot point.  The parameter gives the pivot point (in PQ
+	       space), defaulting to 0.30.  Can be used for both forward and
+	       inverse tone mapping.
+
+	   reinhard
+	       Simple non-linear, global tone mapping algorithm. The parameter
+	       specifies the local contrast coefficient at the display peak.
+	       Essentially, a parameter of 0.5 implies that the reference
+	       white will be about half as bright as when clipping. Defaults
+	       to 0.5, which results in the simplest formulation of this
+	       function.
+
+	   mobius
+	       Generalization of the reinhard tone mapping algorithm to
+	       support an additional linear slope near black. The tone mapping
+	       parameter indicates the trade-off between the linear section
+	       and the non-linear section. Essentially, for a given parameter
+	       x, every color value below x will be mapped linearly, while
+	       higher values get non-linearly tone-mapped. Values near 1.0
+	       make this curve behave like "clip", while values near 0.0 make
+	       this curve behave like "reinhard". The default value is 0.3,
+	       which provides a good balance between colorimetric accuracy and
+	       preserving out-of-gamut details.
+
+	   hable
+	       Piece-wise, filmic tone-mapping algorithm developed by John
+	       Hable for use in Uncharted 2, inspired by a similar tone-
+	       mapping algorithm used by Kodak.  Popularized by its use in
+	       video games with HDR rendering. Preserves both dark and bright
+	       details very well, but comes with the drawback of changing the
+	       average brightness quite significantly. This is sort of similar
+	       to "reinhard" with parameter 0.24.
+
+	   gamma
+	       Fits a gamma (power) function to transfer between the source
+	       and target color spaces, effectively resulting in a perceptual
+	       hard-knee joining two roughly linear sections. This preserves
+	       details at all scales fairly accurately, but can result in an
+	       image with a muted or dull appearance. The parameter is used as
+	       the cutoff point, defaulting to 0.5.
+
+	   linear
+	       Linearly stretches the input range to the output range, in PQ
+	       space. This will preserve all details accurately, but results
+	       in a significantly different average brightness. Can be used
+	       for inverse tone-mapping in addition to regular tone-mapping.
+	       The parameter can be used as an additional linear gain
+	       coefficient (defaulting to 1.0).
+
+       tonemapping_param
+	   For tunable tone mapping functions, this parameter can be used to
+	   fine-tune the curve behavior. Refer to the documentation of
+	   "tonemapping". The default value of 0.0 is replaced by the curve's
+	   preferred default setting.
+
+       inverse_tonemapping
+	   If enabled, this filter will also attempt stretching SDR signals to
+	   fill HDR output color volumes. Disabled by default.
+
+       tonemapping_lut_size
+	   Size of the tone-mapping LUT, between 2 and 1024. Defaults to 256.
+	   Note that this figure is squared when combined with "peak_detect".
+
+       contrast_recovery
+	   Contrast recovery strength. If set to a value above 0.0, the source
+	   image will be divided into high-frequency and low-frequency
+	   components, and a portion of the high-frequency image is added back
+	   onto the tone-mapped output.  May cause excessive ringing artifacts
+	   for some HDR sources, but can improve the subjective sharpness and
+	   detail left over in the image after tone-mapping.  Defaults to
+	   0.30.
+
+       contrast_smoothness
+	   Contrast recovery lowpass kernel size. Defaults to 3.5. Increasing
+	   or decreasing this will affect the visual appearance substantially.
+	   Has no effect when "contrast_recovery" is disabled.
+
+       Dithering
+
+       By default, libplacebo will dither whenever necessary, which includes
+       rendering to any integer format below 16-bit precision. It's
+       recommended to always leave this on, since not doing so may result in
+       visible banding in the output, even if the "debanding" filter is
+       enabled. If maximum performance is needed, use "ordered_fixed" instead
+       of disabling dithering.
+
+       dithering
+	   Dithering method to use. Accepts the following values:
+
+	   none
+	       Disables dithering completely. May result in visible banding.
+
+	   blue
+	       Dither with pseudo-blue noise. This is the default.
+
+	   ordered
+	       Tunable ordered dither pattern.
+
+	   ordered_fixed
+	       Faster ordered dither with a fixed size of 6. Texture-less.
+
+	   white
+	       Dither with white noise. Texture-less.
+
+       dither_lut_size
+	   Dither LUT size, as log base2 between 1 and 8. Defaults to 6,
+	   corresponding to a LUT size of "64x64".
+
+       dither_temporal
+	   Enables temporal dithering. Disabled by default.
+
+       Custom shaders
+
+       libplacebo supports a number of custom shaders based on the mpv .hook
+       GLSL syntax. A collection of such shaders can be found here:
+       <https://github.com/mpv-player/mpv/wiki/User-Scripts#user-shaders>
+
+       A full description of the mpv shader format is beyond the scope of this
+       section, but a summary can be found here:
+       <https://mpv.io/manual/master/#options-glsl-shader>
+
+       custom_shader_path
+	   Specifies a path to a custom shader file to load at runtime.
+
+       custom_shader_bin
+	   Specifies a complete custom shader as a raw string.
+
+       Debugging / performance
+
+       All of the options in this section default off. They may be of
+       assistance when attempting to squeeze the maximum performance at the
+       cost of quality.
+
+       skip_aa
+	   Disable anti-aliasing when downscaling.
+
+       polar_cutoff
+	   Truncate polar (EWA) scaler kernels below this absolute magnitude,
+	   between 0.0 and 1.0.
+
+       disable_linear
+	   Disable linear light scaling.
+
+       disable_builtin
+	   Disable built-in GPU sampling (forces LUT).
+
+       disable_fbos
+	   Forcibly disable FBOs, resulting in loss of almost all
+	   functionality, but offering the maximum possible speed.
+
+       Commands
+
+       This filter supports almost all of the above options as commands.
+
+       Examples
+
+       o   Tone-map input to standard gamut BT.709 output:
+
+		   libplacebo=colorspace=bt709:color_primaries=bt709:color_trc=bt709:range=tv
+
+       o   Rescale input to fit into standard 1080p, with high quality
+	   scaling:
+
+		   libplacebo=w=1920:h=1080:force_original_aspect_ratio=decrease:normalize_sar=true:upscaler=ewa_lanczos:downscaler=ewa_lanczos
+
+       o   Interpolate low FPS / VFR input to smoothed constant 60 fps output:
+
+		   libplacebo=fps=60:frame_mixer=mitchell_clamp
+
+       o   Convert input to standard sRGB JPEG:
+
+		   libplacebo=format=yuv420p:colorspace=bt470bg:color_primaries=bt709:color_trc=iec61966-2-1:range=pc
+
+       o   Use higher quality debanding settings:
+
+		   libplacebo=deband=true:deband_iterations=3:deband_radius=8:deband_threshold=6
+
+       o   Run this filter on the CPU, on systems with Mesa installed (and
+	   with the most expensive options disabled):
+
+		   ffmpeg ... -init_hw_device vulkan:llvmpipe ... -vf libplacebo=upscaler=none:downscaler=none:peak_detect=false
+
+       o   Suppress CPU-based AV1/H.274 film grain application in the decoder,
+	   in favor of doing it with this filter. Note that this is only a
+	   gain if the frames are either already on the GPU, or if you're
+	   using libplacebo for other purposes, since otherwise the VRAM
+	   roundtrip will more than offset any expected speedup.
+
+		   ffmpeg -export_side_data +film_grain ... -vf libplacebo=apply_filmgrain=true
+
+       o   Interop with VAAPI hwdec to avoid round-tripping through RAM:
+
+		   ffmpeg -init_hw_device vulkan -hwaccel vaapi -hwaccel_output_format vaapi ... -vf libplacebo
+
+   libvmaf
+       Calulate the VMAF (Video Multi-Method Assessment Fusion) score for a
+       reference/distorted pair of input videos.
+
+       The first input is the distorted video, and the second input is the
        reference video.
 
        The obtained VMAF score is printed through the logging system.
 
        It requires Netflix's vmaf library (libvmaf) as a pre-requisite.  After
        installing the library it can be enabled using: "./configure
-       --enable-libvmaf".  If no model path is specified it uses the default
-       model: "vmaf_v0.6.1.pkl".
+       --enable-libvmaf".
 
        The filter has following options:
 
-       model_path
-	   Set the model path which is to be used for SVM.  Default value:
-	   "/usr/local/share/model/vmaf_v0.6.1.pkl"
+       model
+	   A `|` delimited list of vmaf models. Each model can be configured
+	   with a number of parameters.  Default value: "version=vmaf_v0.6.1"
+
+       feature
+	   A `|` delimited list of features. Each feature can be configured
+	   with a number of parameters.
 
        log_path
-	   Set the file path to be used to store logs.
+	   Set the file path to be used to store log files.
 
        log_fmt
-	   Set the format of the log file (csv, json or xml).
-
-       enable_transform
-	   This option can enable/disable the "score_transform" applied to the
-	   final predicted VMAF score, if you have specified score_transform
-	   option in the input parameter file passed to "run_vmaf_training.py"
-	   Default value: "false"
-
-       phone_model
-	   Invokes the phone model which will generate VMAF scores higher than
-	   in the regular model, which is more suitable for laptop, TV, etc.
-	   viewing conditions.	Default value: "false"
-
-       psnr
-	   Enables computing psnr along with vmaf.  Default value: "false"
-
-       ssim
-	   Enables computing ssim along with vmaf.  Default value: "false"
-
-       ms_ssim
-	   Enables computing ms_ssim along with vmaf.  Default value: "false"
-
-       pool
-	   Set the pool method to be used for computing vmaf.  Options are
-	   "min", "harmonic_mean" or "mean" (default).
+	   Set the format of the log file (xml, json, csv, or sub).
 
        n_threads
-	   Set number of threads to be used when computing vmaf.  Default
-	   value: 0, which makes use of all available logical processors.
+	   Set number of threads to be used when initializing libvmaf.
+	   Default value: 0, no threads.
 
        n_subsample
-	   Set interval for frame subsampling used when computing vmaf.
-	   Default value: 1
-
-       enable_conf_interval
-	   Enables confidence interval.  Default value: "false"
+	   Set frame subsampling interval to be used.
 
        This filter also supports the framesync options.
 
        Examples
 
-       o   On the below examples the input file main.mpg being processed is
-	   compared with the reference file ref.mpg.
+       o   In the examples below, a distorted video distorted.mpg is compared
+	   with a reference file reference.mpg.
 
-		   ffmpeg -i main.mpg -i ref.mpg -lavfi libvmaf -f null -
+       o   Basic usage:
 
-       o   Example with options:
+		   ffmpeg -i distorted.mpg -i reference.mpg -lavfi libvmaf=log_path=output.xml -f null -
 
-		   ffmpeg -i main.mpg -i ref.mpg -lavfi libvmaf="psnr=1:log_fmt=json" -f null -
+       o   Example with multiple models:
+
+		   ffmpeg -i distorted.mpg -i reference.mpg -lavfi libvmaf='model=version=vmaf_v0.6.1\\:name=vmaf|version=vmaf_v0.6.1neg\\:name=vmaf_neg' -f null -
+
+       o   Example with multiple addtional features:
+
+		   ffmpeg -i distorted.mpg -i reference.mpg -lavfi libvmaf='feature=name=psnr|name=ciede' -f null -
 
        o   Example with options and different containers:
 
-		   ffmpeg -i main.mpg -i ref.mkv -lavfi "[0:v]settb=AVTB,setpts=PTS-STARTPTS[main];[1:v]settb=AVTB,setpts=PTS-STARTPTS[ref];[main][ref]libvmaf=psnr=1:log_fmt=json" -f null -
+		   ffmpeg -i distorted.mpg -i reference.mkv -lavfi "[0:v]settb=AVTB,setpts=PTS-STARTPTS[main];[1:v]settb=AVTB,setpts=PTS-STARTPTS[ref];[main][ref]libvmaf=log_fmt=json:log_path=output.json" -f null -
+
+   libvmaf_cuda
+       This is the CUDA variant of the libvmaf filter. It only accepts CUDA
+       frames.
+
+       It requires Netflix's vmaf library (libvmaf) as a pre-requisite.  After
+       installing the library it can be enabled using: "./configure
+       --enable-nonfree --enable-ffnvcodec --enable-libvmaf".
+
+       Examples
+
+       o   Basic usage showing CUVID hardware decoding and CUDA scaling with
+	   scale_cuda:
+
+		   ffmpeg \
+		       -hwaccel cuda -hwaccel_output_format cuda -codec:v av1_cuvid -i dis.obu \
+		       -hwaccel cuda -hwaccel_output_format cuda -codec:v av1_cuvid -i ref.obu \
+		       -filter_complex "
+			   [0:v]scale_cuda=format=yuv420p[ref]; \
+			   [1:v]scale_cuda=format=yuv420p[dis]; \
+			   [dis][ref]libvmaf_cuda=log_fmt=json:log_path=output.json
+		       " \
+		       -f null -
 
    limitdiff
        Apply limited difference filter using second and optionally third video
@@ -13093,6 +15242,10 @@ VIDEO FILTERS
 
        start
 	   Set first frame of loop. Default is 0.
+
+       time
+	   Set the time of loop start in seconds.  Only used if option named
+	   start is set to "-1".
 
        Examples
 
@@ -13243,7 +15396,7 @@ VIDEO FILTERS
 
        a   alpha component expression
 
-       y   set Y/luminance component expression
+       y   set Y/luma component expression
 
        u   set U/Cb component expression
 
@@ -13288,7 +15441,7 @@ VIDEO FILTERS
 	   expression
 	   "pow((clipval-minval)/(maxval-minval)\,gamma)*(maxval-minval)+minval"
 
-       All expressions default to "val".
+       All expressions default to "clipval".
 
        Commands
 
@@ -13306,7 +15459,7 @@ VIDEO FILTERS
 		   lutrgb="r=negval:g=negval:b=negval"
 		   lutyuv="y=negval:u=negval:v=negval"
 
-       o   Negate luminance:
+       o   Negate luma:
 
 		   lutyuv=y=negval
 
@@ -13326,7 +15479,7 @@ VIDEO FILTERS
 
 		   format=rgba,lutrgb=a="maxval-minval/2"
 
-       o   Correct luminance gamma by a factor of 0.5:
+       o   Correct luma gamma by a factor of 0.5:
 
 		   lutyuv=y=gammaval(0.5)
 
@@ -13504,6 +15657,10 @@ VIDEO FILTERS
 	   will be copied from second stream.  By default value 0xf, all
 	   planes will be processed.
 
+       mode
+	   Set mode of filter operation. Can be "abs" or "diff".  Default is
+	   "abs".
+
        Commands
 
        This filter supports the all above options as commands.
@@ -13542,8 +15699,6 @@ VIDEO FILTERS
 
        It needs one field per frame as input and must thus be used together
        with yadif=1/3 or equivalent.
-
-       This filter is only available in ffmpeg version 4.4 or earlier.
 
        This filter accepts the following options:
 
@@ -13634,6 +15789,20 @@ VIDEO FILTERS
 
        format
 	   Set output pixel format. Default is "yuva444p".
+
+       map0s
+       map1s
+       map2s
+       map3s
+	   Set input to output stream mapping for output Nth plane. Default is
+	   0.
+
+       map0p
+       map1p
+       map2p
+       map3p
+	   Set input to output plane mapping for output Nth plane. Default is
+	   0.
 
        Examples
 
@@ -13841,6 +16010,10 @@ VIDEO FILTERS
 	   weight multiplied with pixel values to give final destination pixel
 	   value. By default scale is auto scaled to sum of weights.
 
+       planes
+	   Set which planes to filter. Default is all. Allowed range is from 0
+	   to 15.
+
        duration
 	   Specify how end of stream is determined.
 
@@ -13859,6 +16032,7 @@ VIDEO FILTERS
 
        weights
        scale
+       planes
 	   Syntax is same as option with same name.
 
    monochrome
@@ -13938,6 +16112,14 @@ VIDEO FILTERS
 
 	   Default value is 0.
 
+       keep
+	   Set the maximum number of consecutive similar frames to ignore
+	   before to start dropping them.  If the value is 0, the frame is
+	   dropped disregarding the number of previous sequentially similar
+	   frames.
+
+	   Default value is 0.
+
        hi
        lo
        frac
@@ -13970,10 +16152,34 @@ VIDEO FILTERS
 
        The filter stores the calculated MSAD of each frame in frame metadata.
 
+       This filter also supports the framesync options.
+
        In the below example the input file main.mpg being processed is
        compared with the reference file ref.mpg.
 
 	       ffmpeg -i main.mpg -i ref.mpg -lavfi msad -f null -
+
+   multiply
+       Multiply first video stream pixels values with second video stream
+       pixels values.
+
+       The filter accepts the following options:
+
+       scale
+	   Set the scale applied to second video stream. By default is 1.
+	   Allowed range is from 0 to 9.
+
+       offset
+	   Set the offset applied to second video stream. By default is 0.5.
+	   Allowed range is from "-1" to 1.
+
+       planes
+	   Specify planes from input video stream that will be processed.  By
+	   default all planes are processed.
+
+       Commands
+
+       This filter supports same commands as options.
 
    negate
        Negate (invert) the input video.
@@ -14503,24 +16709,27 @@ VIDEO FILTERS
 	   It accepts the following values:
 
 	   yuv420
-	       force YUV420 output
+	       force YUV 4:2:0 8-bit planar output
 
 	   yuv420p10
-	       force YUV420p10 output
+	       force YUV 4:2:0 10-bit planar output
 
 	   yuv422
-	       force YUV422 output
+	       force YUV 4:2:2 8-bit planar output
 
 	   yuv422p10
-	       force YUV422p10 output
+	       force YUV 4:2:2 10-bit planar output
 
 	   yuv444
-	       force YUV444 output
+	       force YUV 4:4:4 8-bit planar output
 
-	   rgb force packed RGB output
+	   yuv444p10
+	       force YUV 4:4:4 10-bit planar output
+
+	   rgb force RGB 8-bit packed output
 
 	   gbrp
-	       force planar RGB output
+	       force RGB 8-bit planar output
 
 	   auto
 	       automatically pick format
@@ -14556,15 +16765,16 @@ VIDEO FILTERS
 
        n   the number of input frame, starting from 0
 
-       pos the position in the file of the input frame, NAN if unknown
+       pos the position in the file of the input frame, NAN if unknown;
+	   deprecated, do not use
 
        t   The timestamp, expressed in seconds. It's NAN if the input
 	   timestamp is unknown.
 
        This filter also supports the framesync options.
 
-       Note that the n, pos, t variables are available only when evaluation is
-       done per frame, and will evaluate to NAN when eval is set to init.
+       Note that the n, t variables are available only when evaluation is done
+       per frame, and will evaluate to NAN when eval is set to init.
 
        Be aware that frames are taken from each input video in timestamp
        order, hence, if their initial timestamps differ, it is a good idea to
@@ -14684,7 +16894,7 @@ VIDEO FILTERS
 	   n   The ordinal index of the main input frame, starting from 0.
 
 	   pos The byte offset position in the file of the main input frame,
-	       NAN if unknown.
+	       NAN if unknown.	Deprecated, do not use.
 
 	   t   The timestamp of the main input frame, expressed in seconds,
 	       NAN if unknown.
@@ -14905,10 +17115,6 @@ VIDEO FILTERS
 
 	   Default value is full.
 
-       use_alpha
-	   Create a palette of colors with alpha components.  Setting this,
-	   will automatically disable 'reserve_transparent'.
-
        The filter also exports the frame metadata "lavfi.color_quant_ratio"
        ("nb_color_in / nb_color_out") which you can use to evaluate the degree
        of color quantization of the palette. This information is also visible
@@ -14948,6 +17154,19 @@ VIDEO FILTERS
 	   sierra2_4a
 	       Frankie Sierra dithering v2 "Lite" (error diffusion)
 
+	   sierra3
+	       Frankie Sierra dithering v3 (error diffusion)
+
+	   burkes
+	       Burkes dithering (error diffusion)
+
+	   atkinson
+	       Atkinson dithering by Bill Atkinson at Apple Computer (error
+	       diffusion)
+
+	   none
+	       Disable dithering.
+
 	   Default is sierra2_4a.
 
        bayer_scale
@@ -14983,12 +17202,6 @@ VIDEO FILTERS
 
 	   The option must be an integer value in the range [0,255]. Default
 	   is 128.
-
-       use_alpha
-	   Apply the palette by taking alpha values into account. Only useful
-	   with palettes that are containing multiple colors with alpha
-	   components.	Setting this will automatically disable
-	   'alpha_treshold'.
 
        Examples
 
@@ -15147,6 +17360,34 @@ VIDEO FILTERS
 
        can be used to test the monowhite pixel format descriptor definition.
 
+   pixelize
+       Apply pixelization to video stream.
+
+       The filter accepts the following options:
+
+       width, w
+       height, h
+	   Set block dimensions that will be used for pixelization.  Default
+	   value is 16.
+
+       mode, m
+	   Set the mode of pixelization used.
+
+	   Possible values are:
+
+	   avg
+	   min
+	   max
+
+	   Default value is "avg".
+
+       planes, p
+	   Set what planes to filter. Default is to filter all planes.
+
+       Commands
+
+       This filter supports all options as commands.
+
    pixscope
        Display sample values of color channels. Mainly useful for checking
        color and levels. Minimum supported resolution is 640x480.
@@ -15194,10 +17435,10 @@ VIDEO FILTERS
 	   Do chrominance filtering, too (default).
 
        y/nochrom
-	   Do luminance filtering only (no chrominance).
+	   Do luma filtering only (no chrominance).
 
        n/noluma
-	   Do chrominance filtering only (no luminance).
+	   Do chrominance filtering only (no luma).
 
        These options can be appended after the subfilter name, separated by a
        '|'.
@@ -15275,7 +17516,7 @@ VIDEO FILTERS
        al/autolevels[:f/fullyrange], automatic brightness / contrast
        correction
 	   f/fullyrange
-	       Stretch luminance to "0-255".
+	       Stretch luma to "0-255".
 
        lb/linblenddeint
 	   Linear blend deinterlacing filter that deinterlaces the given block
@@ -15332,8 +17573,8 @@ VIDEO FILTERS
 
 		   pp=default/tmpnoise|1|2|3
 
-       o   Apply deblocking on luminance only, and switch vertical deblocking
-	   on or off automatically depending on available CPU time:
+       o   Apply deblocking on luma only, and switch vertical deblocking on or
+	   off automatically depending on available CPU time:
 
 		   pp=hb|y/vb|a
 
@@ -15432,6 +17673,13 @@ VIDEO FILTERS
 	   nominal
 	   preferred
 	   total
+	   spectral
+	   cool
+	   heat
+	   fiery
+	   blues
+	   green
+	   helix
        opacity
 	   Set opacity of output colors. Allowed range is from 0 to 1.
 	   Default value is set to 1.
@@ -16270,6 +18518,7 @@ VIDEO FILTERS
        pos The position (byte offset) of the frame in the input stream, or NaN
 	   if this information is unavailable and/or meaningless (for example
 	   in case of synthetic video).  Only available with "eval=frame".
+	   Deprecated, do not use.
 
        Examples
 
@@ -16544,6 +18793,7 @@ VIDEO FILTERS
        pos The position (byte offset) of the frame in the input stream, or NaN
 	   if this information is unavailable and/or meaningless (for example
 	   in case of synthetic video).  Only available with "eval=frame".
+	   Deprecated, do not use.
 
    scale2ref
        Scale (resize) the input video, based on a reference video.
@@ -16659,6 +18909,24 @@ VIDEO FILTERS
 	   display aspect ratio.
 
 		   [logo-in][video-in]scale2ref_npp=w=oh*mdar:h=ih/10[logo-out][video-out]
+
+   scale_vt
+       Scale and convert the color parameters using VTPixelTransferSession.
+
+       The filter accepts the following options:
+
+       w
+       h   Set the output video dimension expression. Default value is the
+	   input dimension.
+
+       color_matrix
+	   Set the output colorspace matrix.
+
+       color_primaries
+	   Set the output color primaries.
+
+       color_transfer
+	   Set the output transfer characteristics.
 
    scharr
        Apply scharr operator to input video stream.
@@ -16861,11 +19129,9 @@ VIDEO FILTERS
        r, ratio, dar ("setdar" only), sar ("setsar" only)
 	   Set the aspect ratio used by the filter.
 
-	   The parameter can be a floating point number string, an expression,
-	   or a string of the form num:den, where num and den are the
-	   numerator and denominator of the aspect ratio. If the parameter is
-	   not specified, it is assumed the value "0".	In case the form
-	   "num:den" is used, the ":" character should be escaped.
+	   The parameter can be a floating point number string, or an
+	   expression. If the parameter is not specified, the value "0" is
+	   assumed, meaning that the same input value is used.
 
        max Set the maximum integer value to use for expressing numerator and
 	   denominator when reducing the expressed aspect ratio to a rational.
@@ -16873,14 +19139,10 @@ VIDEO FILTERS
 
        The parameter sar is an expression containing the following constants:
 
-       E, PI, PHI
-	   These are approximated values for the mathematical constants e
-	   (Euler's number), pi (Greek pi), and phi (the golden ratio).
-
        w, h
 	   The input width and height.
 
-       a   These are the same as w / h.
+       a   Same as w / h.
 
        sar The input sample aspect ratio.
 
@@ -17092,10 +19354,6 @@ VIDEO FILTERS
        pts_time
 	   The Presentation TimeStamp of the input frame, expressed as a
 	   number of seconds.
-
-       pos The position of the frame in the input stream, or -1 if this
-	   information is unavailable and/or meaningless (for example in case
-	   of synthetic video).
 
        fmt The pixel format name.
 
@@ -17472,6 +19730,27 @@ VIDEO FILTERS
 
 		   ffmpeg -i input1.mkv -i input2.mkv -filter_complex "[0:v][1:v] signature=nb_inputs=2:detectmode=full:format=xml:filename=signature%d.xml" -map :v -f null -
 
+   siti
+       Calculate Spatial Information (SI) and Temporal Information (TI) scores
+       for a video, as defined in ITU-T Rec. P.910 (11/21): Subjective video
+       quality assessment methods for multimedia applications. Available PDF
+       at <https://www.itu.int/rec/T-REC-P.910-202111-S/en>.  Note that this
+       is a legacy implementation that corresponds to a superseded
+       recommendation.	Refer to ITU-T Rec. P.910 (07/22) for the latest
+       version: <https://www.itu.int/rec/T-REC-P.910-202207-I/en>
+
+       It accepts the following option:
+
+       print_summary
+	   If set to 1, Summary statistics will be printed to the console.
+	   Default 0.
+
+       Examples
+
+       o   To calculate SI/TI metrics and print summary:
+
+		   ffmpeg -i input.mp4 -vf siti=print_summary=1 -f null -
+
    smartblur
        Blur the input video without impacting the outlines.
 
@@ -17592,17 +19871,11 @@ VIDEO FILTERS
        Original repository is at
        <https://github.com/HighVoltageRocknRoll/sr.git>.
 
-       Native model files (.model) can be generated from TensorFlow model
-       files (.pb) by using tools/python/convert.py
-
        The filter accepts the following options:
 
        dnn_backend
 	   Specify which DNN backend to use for model loading and execution.
 	   This option accepts the following values:
-
-	   native
-	       Native implementation of DNN loading and execution.
 
 	   tensorflow
 	       TensorFlow backend. To enable this backend you need to install
@@ -17610,13 +19883,11 @@ VIDEO FILTERS
 	       <https://www.tensorflow.org/install/lang_c>) and configure
 	       FFmpeg with "--enable-libtensorflow"
 
-	   Default value is native.
-
        model
 	   Set path to model file specifying network architecture and its
 	   parameters.	Note that different backends use different file
-	   formats. TensorFlow backend can load files for both formats, while
-	   native backend can load files for only its format.
+	   formats. TensorFlow, OpenVINO backend can load files for only its
+	   format.
 
        scale_factor
 	   Set scale factor for SRCNN model. Allowed values are 2, 3 and 4.
@@ -17938,6 +20209,14 @@ VIDEO FILTERS
 	   It accepts a string containing ASS style format "KEY=VALUE" couples
 	   separated by ",".
 
+       wrap_unicode
+	   Break lines according to the Unicode Line Breaking Algorithm.
+	   Availability requires at least libass release 0.17.0 (or
+	   LIBASS_VERSION 0x01600010), and libass must have been built with
+	   libunibreak.
+
+	   The option is enabled by default except for native ASS.
+
        If the first key is not specified, it is assumed that the first value
        specifies the filename.
 
@@ -18004,7 +20283,8 @@ VIDEO FILTERS
        t   The timestamp expressed in seconds. It's NAN if the input timestamp
 	   is unknown.
 
-       pos the position in the file of the input frame, NAN if unknown
+       pos the position in the file of the input frame, NAN if unknown;
+	   deprecated, do not use
 
        Commands
 
@@ -18181,6 +20461,9 @@ VIDEO FILTERS
 	   filter will pick one of them, and then handle the next batch of n
 	   frames until the end. Default is 100.
 
+       log Set the log level to display picked frame stats.  Default is
+	   "info".
+
        Since the filter keeps track of the whole frames sequence, a bigger n
        value will result in a higher memory usage, so a high value is not
        recommended.
@@ -18203,9 +20486,8 @@ VIDEO FILTERS
        The filter accepts the following options:
 
        layout
-	   Set the grid size (i.e. the number of lines and columns). For the
-	   syntax of this option, check the "Video size" section in the
-	   ffmpeg-utils manual.
+	   Set the grid size in the form "COLUMNSxROWS". Range is upto
+	   UINT_MAX cells.  Default is "6x5".
 
        nb_frames
 	   Set the maximum number of frames to render in the given area. It
@@ -18213,12 +20495,14 @@ VIDEO FILTERS
 	   all the area will be used.
 
        margin
-	   Set the outer border margin in pixels.
+	   Set the outer border margin in pixels. Range is 0 to 1024. Default
+	   is 0.
 
        padding
 	   Set the inner border thickness (i.e. the number of pixels between
 	   frames). For more advanced padding options (such as having
 	   different values for the edges), refer to the pad video filter.
+	   Range is 0 to 1024. Default is 0.
 
        color
 	   Specify the color of the unused area. For the syntax of this
@@ -18228,11 +20512,13 @@ VIDEO FILTERS
        overlap
 	   Set the number of frames to overlap when tiling several successive
 	   frames together.  The value must be between 0 and nb_frames - 1.
+	   Default is 0.
 
        init_padding
 	   Set the number of frames to initially be empty before displaying
 	   first output frame.	This controls how soon will one get first
 	   output frame.  The value must be between 0 and nb_frames - 1.
+	   Default is 0.
 
        Examples
 
@@ -18526,6 +20812,10 @@ VIDEO FILTERS
 	   weight multiplied with pixel values to give final destination pixel
 	   value. By default scale is auto scaled to sum of weights.
 
+       planes
+	   Set which planes to filter. Default is all. Allowed range is from 0
+	   to 15.
+
        Examples
 
        o   Average 7 successive frames:
@@ -18546,6 +20836,7 @@ VIDEO FILTERS
 
        weights
        scale
+       planes
 	   Syntax is same as option with same name.
 
    tonemap
@@ -18923,6 +21214,23 @@ VIDEO FILTERS
 
 	   Default value is 0.0.
 
+       alpha_msize_x, ax
+	   Set the alpha matrix horizontal size. It must be an odd integer
+	   between 3 and 23. The default value is 5.
+
+       alpha_msize_y, ay
+	   Set the alpha matrix vertical size. It must be an odd integer
+	   between 3 and 23. The default value is 5.
+
+       alpha_amount, aa
+	   Set the alpha effect strength. It must be a floating point number,
+	   reasonable values lay between -1.5 and 1.5.
+
+	   Negative values will blur the input video, while positive values
+	   will sharpen it, a value of zero will disable the effect.
+
+	   Default value is 0.0.
+
        All parameters are optional and default to the equivalent of the string
        '5:5:1.0:5:5:0.0'.
 
@@ -18980,6 +21288,9 @@ VIDEO FILTERS
 
        qp  Force a constant quantization parameter. If not set, the filter
 	   will use the QP from the video stream (if available).
+
+       codec
+	   Use specified codec instead of snow.
 
    v360
        Convert 360 videos between various formats.
@@ -19665,6 +21976,16 @@ VIDEO FILTERS
 	   integer in the range 0-2. Default value is 0, which disables any
 	   visualization.
 
+       fileformat
+	   Format for the transforms data file to be written.  Acceptable
+	   values are
+
+	   ascii
+	       Human-readable plain text
+
+	   binary
+	       Binary format, roughly 40% smaller than "ascii". (default)
+
        Examples
 
        o   Use default values:
@@ -19888,6 +22209,8 @@ VIDEO FILTERS
 
        The filter stores the calculated VIF score of each frame.
 
+       This filter also supports the framesync options.
+
        In the below example the input file main.mpg being processed is
        compared with the reference file ref.mpg.
 
@@ -20093,9 +22416,9 @@ VIDEO FILTERS
    waveform
        Video waveform monitor.
 
-       The waveform monitor plots color component intensity. By default
-       luminance only. Each column of the waveform corresponds to a column of
-       pixels in the source video.
+       The waveform monitor plots color component intensity. By default luma
+       only. Each column of the waveform corresponds to a column of pixels in
+       the source video.
 
        It accepts the following options:
 
@@ -20151,9 +22474,9 @@ VIDEO FILTERS
 
        components, c
 	   Set which color components to display. Default is 1, which means
-	   only luminance or red color component if input is in RGB
-	   colorspace. If is set for example to 7 it will display all 3 (if)
-	   available color components.
+	   only luma or red color component if input is in RGB colorspace. If
+	   is set for example to 7 it will display all 3 (if) available color
+	   components.
 
        envelope, e
 	   none
@@ -20254,6 +22577,11 @@ VIDEO FILTERS
 	       Set sample aspect ratio to match input size of video
 
 	   Default is none.
+
+       input
+	   Set input formats for filter to pick from.  Can be all, for
+	   selecting from all available formats, or first, for selecting first
+	   available format.  Default is first.
 
    weave, doubleweave
        The "weave" takes a field-based video input and join each two
@@ -20365,6 +22693,20 @@ VIDEO FILTERS
 	   squeezeh
 	   squeezev
 	   zoomin
+	   fadefast
+	   fadeslow
+	   hlwind
+	   hrwind
+	   vuwind
+	   vdwind
+	   coverleft
+	   coverright
+	   coverup
+	   coverdown
+	   revealleft
+	   revealright
+	   revealup
+	   revealdown
 
 	   Default transition effect is fade.
 
@@ -20467,8 +22809,27 @@ VIDEO FILTERS
 	   overlap each other if their position doesn't leave enough space for
 	   the full frame of adjoining videos.
 
-	   For 2 inputs, a default layout of "0_0|w0_0" is set. In all other
-	   cases, a layout must be set by the user.
+	   For 2 inputs, a default layout of "0_0|w0_0" (equivalent to
+	   "grid=2x1") is set. In all other cases, a layout or a grid must be
+	   set by the user. Either "grid" or "layout" can be specified at a
+	   time.  Specifying both will result in an error.
+
+       grid
+	   Specify a fixed size grid of inputs.  This option is used to create
+	   a fixed size grid of the input streams. Set the grid size in the
+	   form "COLUMNSxROWS". There must be "ROWS * COLUMNS" input streams
+	   and they will be arranged as a grid with "ROWS" rows and "COLUMNS"
+	   columns. When using this option, each input stream within a row
+	   must have the same height and all the rows must have the same
+	   width.
+
+	   If "grid" is set, then "inputs" option is ignored and is implicitly
+	   set to "ROWS * COLUMNS".
+
+	   For 2 inputs, a default grid of "2x1" (equivalent to
+	   "layout=0_0|w0_0") is set. In all other cases, a layout or a grid
+	   must be set by the user. Either "grid" or "layout" can be specified
+	   at a time.  Specifying both will result in an error.
 
        shortest
 	   If set to 1, force the output to terminate when the shortest input
@@ -21630,6 +23991,26 @@ OPENCL VIDEO FILTERS
 		       write_imagef(dst, dst_loc, val1 * blend + val2 * (1.0f - blend));
 		   }
 
+   remap_opencl
+       Remap pixels using 2nd: Xmap and 3rd: Ymap input video stream.
+
+       Destination pixel at position (X, Y) will be picked from source (x, y)
+       position where x = Xmap(X, Y) and y = Ymap(X, Y). If mapping values are
+       out of range, zero value for pixel will be used for destination pixel.
+
+       Xmap and Ymap input video streams must be of same dimensions. Output
+       video stream will have Xmap/Ymap video stream dimensions.  Xmap and
+       Ymap input video streams are 32bit float pixel format, single channel.
+
+       interp
+	   Specify interpolation used for remapping of pixels.	Allowed values
+	   are "near" and "linear".  Default value is "linear".
+
+       fill
+	   Specify the color of the unmapped pixels. For the syntax of this
+	   option, check the "Color" section in the ffmpeg-utils manual.
+	   Default color is "black".
+
    roberts_opencl
        Apply the Roberts cross operator
        (<https://en.wikipedia.org/wiki/Roberts_cross>) to input video stream.
@@ -21911,6 +24292,74 @@ VAAPI VIDEO FILTERS
        more information, please read
        <https://trac.ffmpeg.org/wiki/Hardware/VAAPI>
 
+   overlay_vaapi
+       Overlay one video on the top of another.
+
+       It takes two inputs and has one output. The first input is the "main"
+       video on which the second input is overlaid.
+
+       The filter accepts the following options:
+
+       x
+       y   Set expressions for the x and y coordinates of the overlaid video
+	   on the main video.
+
+	   Default value is "0" for both expressions.
+
+       w
+       h   Set expressions for the width and height the overlaid video on the
+	   main video.
+
+	   Default values are 'overlay_iw' for 'w' and
+	   'overlay_ih*w/overlay_iw' for 'h'.
+
+	   The expressions can contain the following parameters:
+
+	   main_w, W
+	   main_h, H
+	       The main input width and height.
+
+	   overlay_iw
+	   overlay_ih
+	       The overlay input width and height.
+
+	   overlay_w, w
+	   overlay_h, h
+	       The overlay output width and height.
+
+	   overlay_x, x
+	   overlay_y, y
+	       Position of the overlay layer inside of main
+
+       alpha
+	   Set transparency of overlaid video. Allowed range is 0.0 to 1.0.
+	   Higher value means lower transparency.  Default value is 1.0.
+
+       eof_action
+	   See framesync.
+
+       shortest
+	   See framesync.
+
+       repeatlast
+	   See framesync.
+
+       This filter also supports the framesync options.
+
+       Examples
+
+       o   Overlay an image LOGO at the top-left corner of the INPUT video.
+	   Both inputs for this filter are yuv420p format.
+
+		   -i INPUT -i LOGO -filter_complex "[0:v]hwupload[a], [1:v]format=yuv420p, hwupload[b], [a][b]overlay_vaapi" OUTPUT
+
+       o   Overlay an image LOGO at the offset (200, 100) from the top-left
+	   corner of the INPUT video.  The inputs have same memory layout for
+	   color channels, the overlay has additional alpha plane, like INPUT
+	   is yuv420p, and the LOGO is yuva420p.
+
+		   -i INPUT -i LOGO -filter_complex "[0:v]hwupload[a], [1:v]format=yuva420p, hwupload[b], [a][b]overlay_vaapi=x=200:y=100:w=400:h=300:alpha=1.0, hwdownload, format=nv12" OUTPUT
+
    tonemap_vaapi
        Perform HDR(High Dynamic Range) to SDR(Standard Dynamic Range)
        conversion with tone-mapping.  It maps the dynamic range of HDR10
@@ -21950,6 +24399,507 @@ VAAPI VIDEO FILTERS
 
 		   tonemap_vaapi=format=p010:t=bt2020-10
 
+   hstack_vaapi
+       Stack input videos horizontally.
+
+       This is the VA-API variant of the hstack filter, each input stream may
+       have different height, this filter will scale down/up each input stream
+       while keeping the orignal aspect.
+
+       It accepts the following options:
+
+       inputs
+	   See hstack.
+
+       shortest
+	   See hstack.
+
+       height
+	   Set height of output. If set to 0, this filter will set height of
+	   output to height of the first input stream. Default value is 0.
+
+   vstack_vaapi
+       Stack input videos vertically.
+
+       This is the VA-API variant of the vstack filter, each input stream may
+       have different width, this filter will scale down/up each input stream
+       while keeping the orignal aspect.
+
+       It accepts the following options:
+
+       inputs
+	   See vstack.
+
+       shortest
+	   See vstack.
+
+       width
+	   Set width of output. If set to 0, this filter will set width of
+	   output to width of the first input stream. Default value is 0.
+
+   xstack_vaapi
+       Stack video inputs into custom layout.
+
+       This is the VA-API variant of the xstack filter,  each input stream may
+       have different size, this filter will scale down/up each input stream
+       to the given output size, or the size of the first input stream.
+
+       It accepts the following options:
+
+       inputs
+	   See xstack.
+
+       shortest
+	   See xstack.
+
+       layout
+	   See xstack.	Moreover, this permits the user to supply output size
+	   for each input stream.
+
+		   xstack_vaapi=inputs=4:layout=0_0_1920x1080|0_h0_1920x1080|w0_0_1920x1080|w0_h0_1920x1080
+
+       grid
+	   See xstack.
+
+       grid_tile_size
+	   Set output size for each input stream when grid is set. If this
+	   option is not set, this filter will set output size by default to
+	   the size of the first input stream. For the syntax of this option,
+	   check the "Video size" section in the ffmpeg-utils manual.
+
+       fill
+	   See xstack.
+
+VULKAN VIDEO FILTERS
+       Below is a description of the currently available Vulkan video filters.
+
+       To enable compilation of these filters you need to configure FFmpeg
+       with "--enable-vulkan" and either "--enable-libglslang" or
+       "--enable-libshaderc".
+
+       Running Vulkan filters requires you to initialize a hardware device and
+       to pass that device to all filters in any filter graph.
+
+       -init_hw_device vulkan[=name][:device[,key=value...]]
+	   Initialise a new hardware device of type vulkan called name, using
+	   the given device parameters and options in key=value. The following
+	   options are supported:
+
+	   debug
+	       Switches validation layers on if set to 1.
+
+	   linear_images
+	       Allocates linear images. Does not apply to decoding.
+
+	   disable_multiplane
+	       Disables multiplane images. Does not apply to decoding.
+
+       -filter_hw_device name
+	   Pass the hardware device called name to all filters in any filter
+	   graph.
+
+       For more detailed information see
+       <https://www.ffmpeg.org/ffmpeg.html#Advanced-Video-options>
+
+       o   Example of choosing the first device and running nlmeans_vulkan
+	   filter with default parameters on it.
+
+		   -init_hw_device vulkan=vk:0 -filter_hw_device vk -i INPUT -vf "hwupload,nlmeans_vulkan,hwdownload" OUTPUT
+
+       As Vulkan filters are not able to access frame data in normal memory,
+       all frame data needs to be uploaded (hwupload) to hardware surfaces
+       connected to the appropriate device before being used and then
+       downloaded (hwdownload) back to normal memory. Note that hwupload will
+       upload to a frame with the same layout as the software frame, so it may
+       be necessary to add a format filter immediately before to get the input
+       into the right format and hwdownload does not support all formats on
+       the output - it is usually necessary to insert an additional format
+       filter immediately following in the graph to get the output in a
+       supported format.
+
+   avgblur_vulkan
+       Apply an average blur filter, implemented on the GPU using Vulkan.
+
+       The filter accepts the following options:
+
+       sizeX
+	   Set horizontal radius size.	Range is "[1, 32]" and default value
+	   is 3.
+
+       sizeY
+	   Set vertical radius size. Range is "[1, 32]" and default value is
+	   3.
+
+       planes
+	   Set which planes to filter. Default value is 0xf, by which all
+	   planes are processed.
+
+   blend_vulkan
+       Blend two Vulkan frames into each other.
+
+       The "blend" filter takes two input streams and outputs one stream, the
+       first input is the "top" layer and second input is "bottom" layer.  By
+       default, the output terminates when the longest input terminates.
+
+       A description of the accepted options follows.
+
+       c0_mode
+       c1_mode
+       c2_mode
+       c3_mode
+       all_mode
+	   Set blend mode for specific pixel component or all pixel components
+	   in case of all_mode. Default value is "normal".
+
+	   Available values for component modes are:
+
+	   normal
+	   multiply
+
+   bwdif_vulkan
+       Deinterlacer using bwdif, the "Bob Weaver Deinterlacing Filter"
+       algorithm, implemented on the GPU using Vulkan.
+
+       It accepts the following parameters:
+
+       mode
+	   The interlacing mode to adopt. It accepts one of the following
+	   values:
+
+	   0, send_frame
+	       Output one frame for each frame.
+
+	   1, send_field
+	       Output one frame for each field.
+
+	   The default value is "send_field".
+
+       parity
+	   The picture field parity assumed for the input interlaced video. It
+	   accepts one of the following values:
+
+	   0, tff
+	       Assume the top field is first.
+
+	   1, bff
+	       Assume the bottom field is first.
+
+	   -1, auto
+	       Enable automatic detection of field parity.
+
+	   The default value is "auto".  If the interlacing is unknown or the
+	   decoder does not export this information, top field first will be
+	   assumed.
+
+       deint
+	   Specify which frames to deinterlace. Accepts one of the following
+	   values:
+
+	   0, all
+	       Deinterlace all frames.
+
+	   1, interlaced
+	       Only deinterlace frames marked as interlaced.
+
+	   The default value is "all".
+
+   chromaber_vulkan
+       Apply an effect that emulates chromatic aberration. Works best with RGB
+       inputs, but provides a similar effect with YCbCr inputs too.
+
+       dist_x
+	   Horizontal displacement multiplier. Each chroma pixel's position
+	   will be multiplied by this amount, starting from the center of the
+	   image. Default is 0.
+
+       dist_y
+	   Similarly, this sets the vertical displacement multiplier. Default
+	   is 0.
+
+   color_vulkan
+       Video source that creates a Vulkan frame of a solid color.  Useful for
+       benchmarking, or overlaying.
+
+       It accepts the following parameters:
+
+       color
+	   The color to use. Either a name, or a hexadecimal value.  The
+	   default value is "black".
+
+       size
+	   The size of the output frame. Default value is "1920x1080".
+
+       rate
+	   The framerate to output at. Default value is 60 frames per second.
+
+       duration
+	   The video duration. Default value is "-0.000001".
+
+       sar The video signal aspect ratio. Default value is "1/1".
+
+       format
+	   The pixel format of the output Vulkan frames. Default value is
+	   "yuv444p".
+
+       out_range
+	   Set the output YCbCr sample range.
+
+	   This allows the autodetected value to be overridden as well as
+	   allows forcing a specific value used for the output and encoder. If
+	   not specified, the range depends on the pixel format. Possible
+	   values:
+
+	   auto/unknown
+	       Choose automatically.
+
+	   jpeg/full/pc
+	       Set full range (0-255 in case of 8-bit luma).
+
+	   mpeg/limited/tv
+	       Set "MPEG" range (16-235 in case of 8-bit luma).
+
+   vflip_vulkan
+       Flips an image vertically.
+
+   hflip_vulkan
+       Flips an image horizontally.
+
+   flip_vulkan
+       Flips an image along both the vertical and horizontal axis.
+
+   gblur_vulkan
+       Apply Gaussian blur filter on Vulkan frames.
+
+       The filter accepts the following options:
+
+       sigma
+	   Set horizontal sigma, standard deviation of Gaussian blur. Default
+	   is 0.5.
+
+       sigmaV
+	   Set vertical sigma, if negative it will be same as "sigma".
+	   Default is "-1".
+
+       planes
+	   Set which planes to filter. By default all planes are filtered.
+
+       size
+	   Set the kernel size along the horizontal axis. Default is 19.
+
+       sizeV
+	   Set the kernel size along the vertical axis. Default is 0, which
+	   sets to use the same value as size.
+
+   nlmeans_vulkan
+       Denoise frames using Non-Local Means algorithm, implemented on the GPU
+       using Vulkan.  Supports more pixel formats than nlmeans or
+       nlmeans_opencl, including alpha channel support.
+
+       The filter accepts the following options.
+
+       s   Set denoising strength for all components. Default is 1.0. Must be
+	   in range [1.0, 100.0].
+
+       p   Set patch size for all planes. Default is 7. Must be odd number in
+	   range [0, 99].
+
+       r   Set research size. Default is 15. Must be odd number in range [0,
+	   99].
+
+       t   Set parallelism. Default is 36. Must be a number in the range [1,
+	   168].  Larger values may speed up processing, at the cost of more
+	   VRAM.  Lower values will slow it down, reducing VRAM usage.	Only
+	   supported on GPUs with atomic float operations (RDNA3+, Ampere+).
+
+       s0
+       s1
+       s2
+       s3  Set denoising strength for a specific component. Default is 1,
+	   equal to s.	Must be odd number in range [1, 100].
+
+       p0
+       p1
+       p2
+       p3  Set patch size for a specific component. Default is 7, equal to p.
+	   Must be odd number in range [0, 99].
+
+   overlay_vulkan
+       Overlay one video on top of another.
+
+       It takes two inputs and has one output. The first input is the "main"
+       video on which the second input is overlaid.  This filter requires all
+       inputs to use the same pixel format. So, format conversion may be
+       needed.
+
+       The filter accepts the following options:
+
+       x   Set the x coordinate of the overlaid video on the main video.
+	   Default value is 0.
+
+       y   Set the y coordinate of the overlaid video on the main video.
+	   Default value is 0.
+
+   transpose_vt
+       Transpose rows with columns in the input video and optionally flip it.
+       For more in depth examples see the transpose video filter, which shares
+       mostly the same options.
+
+       It accepts the following parameters:
+
+       dir Specify the transposition direction.
+
+	   Can assume the following values:
+
+	   cclock_flip
+	       Rotate by 90 degrees counterclockwise and vertically flip.
+	       (default)
+
+	   clock
+	       Rotate by 90 degrees clockwise.
+
+	   cclock
+	       Rotate by 90 degrees counterclockwise.
+
+	   clock_flip
+	       Rotate by 90 degrees clockwise and vertically flip.
+
+	   hflip
+	       Flip the input video horizontally.
+
+	   vflip
+	       Flip the input video vertically.
+
+       passthrough
+	   Do not apply the transposition if the input geometry matches the
+	   one specified by the specified value. It accepts the following
+	   values:
+
+	   none
+	       Always apply transposition. (default)
+
+	   portrait
+	       Preserve portrait geometry (when height >= width).
+
+	   landscape
+	       Preserve landscape geometry (when width >= height).
+
+   transpose_vulkan
+       Transpose rows with columns in the input video and optionally flip it.
+       For more in depth examples see the transpose video filter, which shares
+       mostly the same options.
+
+       It accepts the following parameters:
+
+       dir Specify the transposition direction.
+
+	   Can assume the following values:
+
+	   cclock_flip
+	       Rotate by 90 degrees counterclockwise and vertically flip.
+	       (default)
+
+	   clock
+	       Rotate by 90 degrees clockwise.
+
+	   cclock
+	       Rotate by 90 degrees counterclockwise.
+
+	   clock_flip
+	       Rotate by 90 degrees clockwise and vertically flip.
+
+       passthrough
+	   Do not apply the transposition if the input geometry matches the
+	   one specified by the specified value. It accepts the following
+	   values:
+
+	   none
+	       Always apply transposition. (default)
+
+	   portrait
+	       Preserve portrait geometry (when height >= width).
+
+	   landscape
+	       Preserve landscape geometry (when width >= height).
+
+QSV VIDEO FILTERS
+       Below is a description of the currently available QSV video filters.
+
+       To enable compilation of these filters you need to configure FFmpeg
+       with "--enable-libmfx" or "--enable-libvpl".
+
+       To use QSV filters, you need to setup the QSV device correctly. For
+       more information, please read
+       <https://trac.ffmpeg.org/wiki/Hardware/QuickSync>
+
+   hstack_qsv
+       Stack input videos horizontally.
+
+       This is the QSV variant of the hstack filter, each input stream may
+       have different height, this filter will scale down/up each input stream
+       while keeping the orignal aspect.
+
+       It accepts the following options:
+
+       inputs
+	   See hstack.
+
+       shortest
+	   See hstack.
+
+       height
+	   Set height of output. If set to 0, this filter will set height of
+	   output to height of the first input stream. Default value is 0.
+
+   vstack_qsv
+       Stack input videos vertically.
+
+       This is the QSV variant of the vstack filter, each input stream may
+       have different width, this filter will scale down/up each input stream
+       while keeping the orignal aspect.
+
+       It accepts the following options:
+
+       inputs
+	   See vstack.
+
+       shortest
+	   See vstack.
+
+       width
+	   Set width of output. If set to 0, this filter will set width of
+	   output to width of the first input stream. Default value is 0.
+
+   xstack_qsv
+       Stack video inputs into custom layout.
+
+       This is the QSV variant of the xstack filter.
+
+       It accepts the following options:
+
+       inputs
+	   See xstack.
+
+       shortest
+	   See xstack.
+
+       layout
+	   See xstack.	Moreover, this permits the user to supply output size
+	   for each input stream.
+
+		   xstack_qsv=inputs=4:layout=0_0_1920x1080|0_h0_1920x1080|w0_0_1920x1080|w0_h0_1920x1080
+
+       grid
+	   See xstack.
+
+       grid_tile_size
+	   Set output size for each input stream when grid is set. If this
+	   option is not set, this filter will set output size by default to
+	   the size of the first input stream. For the syntax of this option,
+	   check the "Video size" section in the ffmpeg-utils manual.
+
+       fill
+	   See xstack.
+
 VIDEO SOURCES
        Below is a description of the currently available video sources.
 
@@ -21986,11 +24936,6 @@ VIDEO SOURCES
 
        pixel_aspect, sar
 	   The sample (pixel) aspect ratio of the input video.
-
-       sws_param
-	   This option is deprecated and ignored. Prepend "sws_flags=flags;"
-	   to the filtergraph description to specify swscale flags for
-	   automatically inserted scalers. See Filtergraph syntax.
 
        hw_frames_ctx
 	   When using a hardware pixel format, this should be a reference to
@@ -22167,6 +25112,85 @@ VIDEO SOURCES
 	   This example is equivalent to the QRCode example of coreimage
 	   without the need for a nullsrc video source.
 
+   ddagrab
+       Captures the Windows Desktop via Desktop Duplication API.
+
+       The filter exclusively returns D3D11 Hardware Frames, for on-gpu
+       encoding or processing. So an explicit hwdownload is needed for any
+       kind of software processing.
+
+       It accepts the following options:
+
+       output_idx
+	   DXGI Output Index to capture.
+
+	   Usually corresponds to the index Windows has given the screen minus
+	   one, so it's starting at 0.
+
+	   Defaults to output 0.
+
+       draw_mouse
+	   Whether to draw the mouse cursor.
+
+	   Defaults to true.
+
+	   Only affects hardware cursors. If a game or application renders its
+	   own cursor, it'll always be captured.
+
+       framerate
+	   Framerate at which the desktop will be captured.
+
+	   Defaults to 30 FPS.
+
+       video_size
+	   Specify the size of the captured video.
+
+	   Defaults to the full size of the screen.
+
+	   Cropped from the bottom/right if smaller than screen size.
+
+       offset_x
+	   Horizontal offset of the captured video.
+
+       offset_y
+	   Vertical offset of the captured video.
+
+       output_fmt
+	   Desired filter output format.  Defaults to 8 Bit BGRA.
+
+	   It accepts the following values:
+
+	   auto
+	       Passes all supported output formats to DDA and returns what DDA
+	       decides to use.
+
+	   8bit
+	   bgra
+	       8 Bit formats always work, and DDA will convert to them if
+	       neccesary.
+
+	   10bit
+	   x2bgr10
+	       Filter initialization will fail if 10 bit format is requested
+	       but unavailable.
+
+       Examples
+
+       Capture primary screen and encode using nvenc:
+
+	       ffmpeg -f lavfi -i ddagrab -c:v h264_nvenc -cq 18 output.mp4
+
+       You can also skip the lavfi device and directly use the filter.	Also
+       demonstrates downloading the frame and encoding with libx264.  Explicit
+       output format specification is required in this case:
+
+	       ffmpeg -filter_complex ddagrab=output_idx=1:framerate=60,hwdownload,format=bgra -c:v libx264 -crf 18 output.mp4
+
+       If you want to capture only a subsection of the desktop, this can be
+       achieved by specifying a smaller size and its offsets into the screen:
+
+	       ddagrab=video_size=800x600:offset_x=100:offset_y=100
+
    gradients
        Generate several gradients.
 
@@ -22202,6 +25226,10 @@ VIDEO SOURCES
 
        speed
 	   Set speed of gradients rotation.
+
+       type, t
+	   Set type of gradients, can be "linear" or "radial" or "circular" or
+	   "spiral".
 
    mandelbrot
        Generate a Mandelbrot set fractal, and progressively zoom towards the
@@ -22473,14 +25501,16 @@ VIDEO SOURCES
 
 		   ffplay -f lavfi life=s=300x200:mold=10:r=60:ratio=0.1:death_color=#C83232:life_color=#00ff00,scale=1200:800:flags=16
 
-   allrgb, allyuv, color, colorspectrum, haldclutsrc, nullsrc, pal75bars,
-       pal100bars, rgbtestsrc, smptebars, smptehdbars, testsrc, testsrc2,
-       yuvtestsrc
+   allrgb, allyuv, color, colorchart, colorspectrum, haldclutsrc, nullsrc,
+       pal75bars, pal100bars, rgbtestsrc, smptebars, smptehdbars, testsrc,
+       testsrc2, yuvtestsrc
        The "allrgb" source returns frames of size 4096x4096 of all rgb colors.
 
        The "allyuv" source returns frames of size 4096x4096 of all yuv colors.
 
        The "color" source provides an uniformly colored input.
+
+       The "colorchart" source provides a colors checker chart.
 
        The "colorspectrum" source provides a color spectrum input.
 
@@ -22579,6 +25609,20 @@ VIDEO SOURCES
 	   black
 	   white
 	   all
+       patch_size
+	   Set patch size of single color patch, only available in the
+	   "colorchart" source. Default is "64x64".
+
+       preset
+	   Set colorchecker colors preset, only available in the "colorchart"
+	   source.
+
+	   Available values are:
+
+	   reference
+	   skintones
+
+	   Default value is "reference".
 
        Examples
 
@@ -22594,8 +25638,8 @@ VIDEO SOURCES
 		   color=c=red@0.2:s=qcif:r=10
 
        o   If the input content is to be ignored, "nullsrc" can be used. The
-	   following command generates noise in the luminance plane by
-	   employing the "geq" filter:
+	   following command generates noise in the luma plane by employing
+	   the "geq" filter:
 
 		   nullsrc=s=256x256, geq=random(1)*255:128:128
 
@@ -22692,6 +25736,87 @@ VIDEO SOURCES
        type
 	   Set fractal type, can be default "carpet" or "triangle".
 
+   zoneplate
+       Generate a zoneplate test video pattern.
+
+       This source accepts the following options:
+
+       size, s
+	   Set frame size. For the syntax of this option, check the "Video
+	   size" section in the ffmpeg-utils manual. Default value is
+	   "320x240".
+
+       rate, r
+	   Set frame rate, expressed as number of frames per second. Default
+	   value is "25".
+
+       duration, d
+	   Set the duration of the sourced video. See the Time duration
+	   section in the ffmpeg-utils(1) manual for the accepted syntax.
+
+	   If not specified, or the expressed duration is negative, the video
+	   is supposed to be generated forever.
+
+       sar Set the sample aspect ratio of the sourced video.
+
+       precision
+	   Set precision in bits for look-up table for sine calculations.
+	   Default value is 10.  Allowed range is from 4 to 16.
+
+       xo  Set horizontal axis offset for output signal. Default value is 0.
+
+       yo  Set vertical axis offset for output signal. Default value is 0.
+
+       to  Set time axis offset for output signal. Default value is 0.
+
+       k0  Set 0-order, constant added to signal phase. Default value is 0.
+
+       kx  Set 1-order, phase factor multiplier for horizontal axis. Default
+	   value is 0.
+
+       ky  Set 1-order, phase factor multiplier for vertical axis. Default
+	   value is 0.
+
+       kt  Set 1-order, phase factor multiplier for time axis. Default value
+	   is 0.
+
+       kxt, kyt, kxy
+	   Set phase factor multipliers for combination of spatial and
+	   temporal axis.  Default value is 0.
+
+       kx2 Set 2-order, phase factor multiplier for horizontal axis. Default
+	   value is 0.
+
+       ky2 Set 2-order, phase factor multiplier for vertical axis. Default
+	   value is 0.
+
+       kt2 Set 2-order, phase factor multiplier for time axis. Default value
+	   is 0.
+
+       ku  Set the constant added to final phase to produce chroma-blue
+	   component of signal.  Default value is 0.
+
+       kv  Set the constant added to final phase to produce chroma-red
+	   component of signal.  Default value is 0.
+
+       Commands
+
+       This source supports the some above options as commands.
+
+       Examples
+
+       o   Generate horizontal color sine sweep:
+
+		   zoneplate=ku=512:kv=0:kt2=0:kx2=256:s=wvga:xo=-426:kt=11
+
+       o   Generate vertical color sine sweep:
+
+		   zoneplate=ku=512:kv=0:kt2=0:ky2=156:s=wvga:yo=-240:kt=11
+
+       o   Generate circular zone-plate:
+
+		   zoneplate=ku=512:kv=100:kt2=0:ky2=256:kx2=556:s=wvga:yo=0:kt=11
+
 VIDEO SINKS
        Below is a description of the currently available video sinks.
 
@@ -22714,6 +25839,56 @@ VIDEO SINKS
 MULTIMEDIA FILTERS
        Below is a description of the currently available multimedia filters.
 
+   a3dscope
+       Convert input audio to 3d scope video output.
+
+       The filter accepts the following options:
+
+       rate, r
+	   Set frame rate, expressed as number of frames per second. Default
+	   value is "25".
+
+       size, s
+	   Specify the video size for the output. For the syntax of this
+	   option, check the "Video size" section in the ffmpeg-utils manual.
+	   Default value is "hd720".
+
+       fov Set the camera field of view. Default is 90 degrees.  Allowed range
+	   is from 40 to 150.
+
+       roll
+	   Set the camera roll.
+
+       pitch
+	   Set the camera pitch.
+
+       yaw Set the camera yaw.
+
+       xzoom
+	   Set the camera zoom on X-axis.
+
+       yzoom
+	   Set the camera zoom on Y-axis.
+
+       zzoom
+	   Set the camera zoom on Z-axis.
+
+       xpos
+	   Set the camera position on X-axis.
+
+       ypos
+	   Set the camera position on Y-axis.
+
+       zpos
+	   Set the camera position on Z-axis.
+
+       length
+	   Set the length of displayed audio waves in number of frames.
+
+       Commands
+
+       Filter supports the some above options as commands.
+
    abitscope
        Convert input audio to a video output, displaying the audio bit scope.
 
@@ -22732,6 +25907,9 @@ MULTIMEDIA FILTERS
 	   Specify list of colors separated by space or by '|' which will be
 	   used to draw channels. Unrecognized or missing colors will be
 	   replaced by white color.
+
+       mode, m
+	   Set output mode. Can be "bars" or "trace". Default is "bars".
 
    adrawgraph
        Draw a graph using input audio metadata.
@@ -22818,6 +25996,18 @@ MULTIMEDIA FILTERS
 	       scroll from top to bottom.
 
 	   Default is "replace".
+
+       hmode
+	   Set histogram mode.
+
+	   It accepts the following values:
+
+	   abs Use absolute values of samples.
+
+	   sign
+	       Use untouched values of samples.
+
+	   Default is "abs".
 
    aphasemeter
        Measures phase of input audio, which is exported as metadata
@@ -22945,6 +26135,9 @@ MULTIMEDIA FILTERS
 
 	   line
 	       Draw line between previous and current sample.
+
+	   aaline
+	       Draw anti-aliased line between previous and current sample.
 
 	   Default value is dot.
 
@@ -23149,6 +26342,9 @@ MULTIMEDIA FILTERS
 
 	   Available values are:
 
+	   quiet
+	       logging disabled
+
 	   info
 	       information logging level
 
@@ -23212,6 +26408,24 @@ MULTIMEDIA FILTERS
 	   "absolute" (in LUFS) or "relative" (LU) relative to the target.
 	   This only affects the video output, not the summary or continuous
 	   log output.
+
+       integrated
+	   Read-only exported value for measured integrated loudness, in LUFS.
+
+       range
+	   Read-only exported value for measured loudness range, in LU.
+
+       lra_low
+	   Read-only exported value for measured LRA low, in LUFS.
+
+       lra_high
+	   Read-only exported value for measured LRA high, in LUFS.
+
+       sample_peak
+	   Read-only exported value for measured sample peak, in dBFS.
+
+       true_peak
+	   Read-only exported value for measured true peak, in dBFS.
 
        Examples
 
@@ -23451,6 +26665,10 @@ MULTIMEDIA FILTERS
 	   A processing speed faster than what is possible without these
 	   filters cannot be achieved.
 
+       Commands
+
+       Both filters supports the all above options as commands.
+
    segment, asegment
        Split single input stream into multiple streams.
 
@@ -23576,7 +26794,8 @@ MULTIMEDIA FILTERS
        key This is 1 if the filtered frame is a key-frame, 0 otherwise.
 
        pos the position in the file of the filtered frame, -1 if the
-	   information is not available (e.g. for synthetic video)
+	   information is not available (e.g. for synthetic video);
+	   deprecated, do not use
 
        scene (video only)
 	   value between 0 and 1 to indicate a new scene; a low value reflects
@@ -23734,7 +26953,7 @@ MULTIMEDIA FILTERS
 	   the following constants:
 
 	   POS Original position in the file of the frame, or undefined if
-	       undefined for the current frame.
+	       undefined for the current frame. Deprecated, do not use.
 
 	   PTS The presentation timestamp in input.
 
@@ -23749,6 +26968,10 @@ MULTIMEDIA FILTERS
 
 	   TI  The interpolated time of the current command interval, TI = (T
 	       - TS) / (TE - TS).
+
+	   W   The video frame width.
+
+	   H   The video frame height.
 
        If FLAGS is not specified, a default value of "[enter]" is assumed.
 
@@ -23849,7 +27072,7 @@ MULTIMEDIA FILTERS
        T   the time in seconds of the current frame
 
        POS original position in the file of the frame, or undefined if
-	   undefined for the current frame
+	   undefined for the current frame; deprecated, do not use
 
        PREV_INPTS
 	   The previous input PTS.
@@ -23871,6 +27094,10 @@ MULTIMEDIA FILTERS
 	   The wallclock (RTC) time at the start of the movie in microseconds.
 
        TB  The timebase of the input timestamps.
+
+       T_CHANGE
+	   Time of the first frame after command was applied or time of the
+	   first frame if no commands.
 
        Examples
 
@@ -23906,6 +27133,10 @@ MULTIMEDIA FILTERS
        o   Generate timestamps by counting samples:
 
 		   asetpts=N/SR/TB
+
+       Commands
+
+       Both filters support all above options as commands.
 
    setrange
        Force color range for the output video frame.
@@ -24237,6 +27468,117 @@ MULTIMEDIA FILTERS
 
 		   axisfile=myaxis.png:basefreq=40:endfreq=10000
 
+   showcwt
+       Convert input audio to video output representing frequency spectrum
+       using Continuous Wavelet Transform and Morlet wavelet.
+
+       The filter accepts the following options:
+
+       size, s
+	   Specify the video size for the output. For the syntax of this
+	   option, check the "Video size" section in the ffmpeg-utils manual.
+	   Default value is "640x512".
+
+       rate, r
+	   Set the output frame rate. Default value is 25.
+
+       scale
+	   Set the frequency scale used. Allowed values are:
+
+	   linear
+	   log
+	   bark
+	   mel
+	   erbs
+	   sqrt
+	   cbrt
+	   qdrt
+
+	   Default value is "linear".
+
+       iscale
+	   Set the intensity scale used. Allowed values are:
+
+	   linear
+	   log
+	   sqrt
+	   cbrt
+	   qdrt
+
+	   Default value is "log".
+
+       min Set the minimum frequency that will be used in output.  Default is
+	   20 Hz.
+
+       max Set the maximum frequency that will be used in output.  Default is
+	   20000 Hz. The real frequency upper limit depends on input audio's
+	   sample rate and such will be enforced on this value when it is set
+	   to value greater than Nyquist frequency.
+
+       imin
+	   Set the minimum intensity that will be used in output.
+
+       imax
+	   Set the maximum intensity that will be used in output.
+
+       logb
+	   Set the logarithmic basis for brightness strength when mapping
+	   calculated magnitude values to pixel values.  Allowed range is from
+	   0 to 1.  Default value is 0.0001.
+
+       deviation
+	   Set the frequency deviation.  Lower values than 1 are more
+	   frequency oriented, while higher values than 1 are more time
+	   oriented.  Allowed range is from 0 to 10.  Default value is 1.
+
+       pps Set the number of pixel output per each second in one row.  Allowed
+	   range is from 1 to 1024.  Default value is 64.
+
+       mode
+	   Set the output visual mode. Allowed values are:
+
+	   magnitude
+	       Show magnitude.
+
+	   phase
+	       Show only phase.
+
+	   magphase
+	       Show combination of magnitude and phase.  Magnitude is mapped
+	       to brightness and phase to color.
+
+	   channel
+	       Show unique color per channel magnitude.
+
+	   stereo
+	       Show unique color per stereo difference.
+
+	   Default value is "magnitude".
+
+       slide
+	   Set the output slide method. Allowed values are:
+
+	   replace
+	   scroll
+	   frame
+       direction
+	   Set the direction method for output slide method. Allowed values
+	   are:
+
+	   lr  Direction from left to right.
+
+	   rl  Direction from right to left.
+
+	   ud  Direction from up to down.
+
+	   du  Direction from down to up.
+
+       bar Set the ratio of bargraph display to display size. Default is 0.
+
+       rotation
+	   Set color rotation, must be in [-1.0, 1.0] range.  Default value is
+	   0.
+
    showfreqs
        Convert input audio to video output representing the audio power
        spectrum.  Audio amplitude is on Y-axis while frequency is on X-axis.
@@ -24247,6 +27589,9 @@ MULTIMEDIA FILTERS
 	   Specify size of video. For the syntax of this option, check the
 	   "Video size" section in the ffmpeg-utils manual.  Default is
 	   "1024x512".
+
+       rate, r
+	   Set video rate. Default is 25.
 
        mode
 	   Set display mode.  This set how each frequency bin will be
@@ -24321,6 +27666,7 @@ MULTIMEDIA FILTERS
 	   parzen
 	   poisson
 	   bohman
+	   kaiser
 
 	   Default is "hanning".
 
@@ -24360,6 +27706,10 @@ MULTIMEDIA FILTERS
 	   delay
 
 	   Default is "magnitude".
+
+       channels
+	   Set channels to use when processing audio. By default all are
+	   processed.
 
    showspatial
        Convert stereo input audio to a video output, representing the spatial
@@ -24402,13 +27752,12 @@ MULTIMEDIA FILTERS
 	   parzen
 	   poisson
 	   bohman
+	   kaiser
 
 	   Default value is "hann".
 
-       overlap
-	   Set ratio of overlap window. Default value is 0.5.  When value is 1
-	   overlap is set to recommended size for specific window function
-	   currently used.
+       rate, r
+	   Set output framerate.
 
    showspectrum
        Convert input audio to a video output, representing the audio frequency
@@ -24573,6 +27922,7 @@ MULTIMEDIA FILTERS
 	   parzen
 	   poisson
 	   bohman
+	   kaiser
 
 	   Default value is "hann".
 
@@ -24616,6 +27966,10 @@ MULTIMEDIA FILTERS
        limit
 	   Set upper limit of input audio samples volume in dBFS. Default is 0
 	   dBFS.  Allowed range is from -100 to 100.
+
+       opacity
+	   Set opacity strength when using pixel format output with alpha
+	   component.
 
        The usage is very similar to the showwaves filter; see the examples in
        that section.
@@ -24773,6 +28127,7 @@ MULTIMEDIA FILTERS
 	   parzen
 	   poisson
 	   bohman
+	   kaiser
 
 	   Default value is "hann".
 
@@ -24805,6 +28160,10 @@ MULTIMEDIA FILTERS
        limit
 	   Set upper limit of input audio samples volume in dBFS. Default is 0
 	   dBFS.  Allowed range is from -100 to 100.
+
+       opacity
+	   Set opacity strength when using pixel format output with alpha
+	   component.
 
        Examples
 
@@ -25210,6 +28569,46 @@ MULTIMEDIA SOURCES
        This is the same as movie source, except it selects an audio stream by
        default.
 
+   avsynctest
+       Generate an Audio/Video Sync Test.
+
+       Generated stream periodically shows flash video frame and emits beep in
+       audio.  Useful to inspect A/V sync issues.
+
+       It accepts the following options:
+
+       size, s
+	   Set output video size. Default value is "hd720".
+
+       framerate, fr
+	   Set output video frame rate. Default value is 30.
+
+       samplerate, sr
+	   Set output audio sample rate. Default value is 44100.
+
+       amplitude, a
+	   Set output audio beep amplitude. Default value is 0.7.
+
+       period, p
+	   Set output audio beep period in seconds. Default value is 3.
+
+       delay, dl
+	   Set output video flash delay in number of frames. Default value is
+	   0.
+
+       cycle, c
+	   Enable cycling of video delays, by default is disabled.
+
+       duration, d
+	   Set stream output duration. By default duration is unlimited.
+
+       fg, bg, ag
+	   Set foreground/background/additional color.
+
+       Commands
+
+       This source supports the some above options as commands.
+
    movie
        Read audio and/or video stream(s) from a movie container.
 
@@ -25328,9 +28727,9 @@ AUTHORS
        The FFmpeg developers.
 
        For details about the authorship, see the Git history of the project
-       (git://source.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
+       (https://git.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
        the FFmpeg source directory, or browsing the online repository at
-       <http://source.ffmpeg.org>.
+       <https://git.ffmpeg.org/ffmpeg>.
 
        Maintainers for the specific components are listed in the file
        MAINTAINERS in the source code tree.

@@ -126,6 +126,35 @@ BITSTREAM FILTERS
 
 	       ffmpeg -i INPUT -map 0 -flags:v +global_header -c:v libx264 -bsf:v dump_extra out.ts
 
+   dv_error_marker
+       Blocks in DV which are marked as damaged are replaced by blocks of the
+       specified color.
+
+       color
+	   The color to replace damaged blocks by
+
+       sta A 16 bit mask which specifies which of the 16 possible error status
+	   values are to be replaced by colored blocks. 0xFFFE is the default
+	   which replaces all non 0 error status values.
+
+	   ok  No error, no concealment
+
+	   err Error, No concealment
+
+	   res Reserved
+
+	   notok
+	       Error or concealment
+
+	   notres
+	       Not reserved
+
+	   Aa, Ba, Ca, Ab, Bb, Cb, A, B, C, a, b, erri, erru
+	       The specific error status code
+
+	   see page 44-46 or section 5.5 of
+	   <http://web.archive.org/web/20060927044735/http://www.smpte.org/smpte_store/standards/pdf/s314m.pdf>
+
    eac3_core
        Extract the core from a E-AC-3 stream, dropping extra channels.
 
@@ -192,10 +221,15 @@ BITSTREAM FILTERS
 
        aud Insert or remove AUD NAL units in all access units of the stream.
 
+	   pass
 	   insert
 	   remove
+
+	   Default is pass.
+
        sample_aspect_ratio
 	   Set the sample aspect ratio of the stream in the VUI parameters.
+	   See H.264 table E-1.
 
        overscan_appropriate_flag
 	   Set whether the stream is suitable for display using overscan or
@@ -256,6 +290,34 @@ BITSTREAM FILTERS
        delete_filler
 	   Deletes both filler NAL units and filler SEI messages.
 
+       display_orientation
+	   Insert, extract or remove Display orientation SEI messages.	See
+	   H.264 section D.1.27 and D.2.27 for syntax and semantics.
+
+	   pass
+	   insert
+	   remove
+	   extract
+
+	   Default is pass.
+
+	   Insert mode works in conjunction with "rotate" and "flip" options.
+	   Any pre-existing Display orientation messages will be removed in
+	   insert or remove mode.  Extract mode attaches the display matrix to
+	   the packet as side data.
+
+       rotate
+	   Set rotation in display orientation SEI (anticlockwise angle in
+	   degrees).  Range is -360 to +360. Default is NaN.
+
+       flip
+	   Set flip in display orientation SEI.
+
+	   horizontal
+	   vertical
+
+	   Default is unset.
+
        level
 	   Set the level in the SPS.  Refer to H.264 section A.3 and tables
 	   A-1 to A-5.
@@ -285,9 +347,6 @@ BITSTREAM FILTERS
        This applies a specific fixup to some Blu-ray streams which contain
        redundant PPSs modifying irrelevant parameters of the stream which
        confuse other transformations which require correct extradata.
-
-       A new single global PPS is created, and all of the redundant PPSs
-       within the stream are removed.
 
    hevc_metadata
        Modify metadata embedded in an HEVC stream.
@@ -576,6 +635,13 @@ BITSTREAM FILTERS
 
 	       ffmpeg -f lavfi -i sine=r=48000:d=1 -c pcm_s16le -bsf pcm_rechunk=r=30000/1001 -f framecrc -
 
+   pgs_frame_merge
+       Merge a sequence of PGS Subtitle segments ending with an "end of
+       display set" segment into a single packet.
+
+       This is required by some containers that support PGS subtitles (muxer
+       "matroska").
+
    prores_metadata
        Modify color property metadata embedded in prores stream.
 
@@ -662,6 +728,12 @@ BITSTREAM FILTERS
        pts
        dts Set expressions for PTS, DTS or both.
 
+       duration
+	   Set expression for duration.
+
+       time_base
+	   Set output time base.
+
        The expressions are evaluated through the eval API and can contain the
        following constants:
 
@@ -677,6 +749,9 @@ BITSTREAM FILTERS
 
        PTS The presentation timestamp in input.
 
+       DURATION
+	   The duration in input.
+
        STARTDTS
 	   The DTS of the first packet.
 
@@ -689,13 +764,31 @@ BITSTREAM FILTERS
        PREV_INPTS
 	   The previous input PTS.
 
+       PREV_INDURATION
+	   The previous input duration.
+
        PREV_OUTDTS
 	   The previous output DTS.
 
        PREV_OUTPTS
 	   The previous output PTS.
 
+       PREV_OUTDURATION
+	   The previous output duration.
+
+       NEXT_DTS
+	   The next input DTS.
+
+       NEXT_PTS
+	   The next input PTS.
+
+       NEXT_DURATION
+	   The next input duration.
+
        TB  The timebase of stream packet belongs.
+
+       TB_OUT
+	   The output timebase.
 
        SR  The sample rate of stream packet belongs.
 
@@ -760,9 +853,9 @@ AUTHORS
        The FFmpeg developers.
 
        For details about the authorship, see the Git history of the project
-       (git://source.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
+       (https://git.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
        the FFmpeg source directory, or browsing the online repository at
-       <http://source.ffmpeg.org>.
+       <https://git.ffmpeg.org/ffmpeg>.
 
        Maintainers for the specific components are listed in the file
        MAINTAINERS in the source code tree.

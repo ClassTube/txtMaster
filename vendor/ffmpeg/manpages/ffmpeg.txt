@@ -1,16 +1,16 @@
 FFMPEG(1)							     FFMPEG(1)
 
 NAME
-       ffmpeg - ffmpeg video converter
+       ffmpeg - ffmpeg media converter
 
 SYNOPSIS
        ffmpeg [global_options] {[input_file_options] -i input_url} ...
        {[output_file_options] output_url} ...
 
 DESCRIPTION
-       ffmpeg is a very fast video and audio converter that can also grab from
-       a live audio/video source. It can also convert between arbitrary sample
-       rates and resize video on the fly with a high quality polyphase filter.
+       ffmpeg is a universal media converter. It can read a wide variety of
+       inputs - including live grabbing/recording devices - filter, and
+       transcode them into a plethora of output formats.
 
        ffmpeg reads from an arbitrary number of input "files" (which can be
        regular files, pipes, network streams, grabbing devices, etc.),
@@ -43,18 +43,25 @@ DESCRIPTION
        different files. All options apply ONLY to the next input or output
        file and are reset between files.
 
-       o   To set the video bitrate of the output file to 64 kbit/s:
+       Some simple examples follow.
 
-		   ffmpeg -i input.avi -b:v 64k -bufsize 64k output.avi
+       o   Convert an input media file to a different format, by re-encoding
+	   media streams:
 
-       o   To force the frame rate of the output file to 24 fps:
+		   ffmpeg -i input.avi output.mp4
 
-		   ffmpeg -i input.avi -r 24 output.avi
+       o   Set the video bitrate of the output file to 64 kbit/s:
 
-       o   To force the frame rate of the input file (valid for raw formats
-	   only) to 1 fps and the frame rate of the output file to 24 fps:
+		   ffmpeg -i input.avi -b:v 64k -bufsize 64k output.mp4
 
-		   ffmpeg -r 1 -i input.m2v -r 24 output.avi
+       o   Force the frame rate of the output file to 24 fps:
+
+		   ffmpeg -i input.avi -r 24 output.mp4
+
+       o   Force the frame rate of the input file (valid for raw formats only)
+	   to 1 fps and the frame rate of the output file to 24 fps:
+
+		   ffmpeg -r 1 -i input.m2v -r 24 output.mp4
 
        The format option may be needed for raw input files.
 
@@ -903,6 +910,23 @@ OPTIONS
 	   Like the "-ss" option but relative to the "end of file". That is
 	   negative values are earlier in the file, 0 is at EOF.
 
+       -isync input_index (input)
+	   Assign an input as a sync source.
+
+	   This will take the difference between the start times of the target
+	   and reference inputs and offset the timestamps of the target file
+	   by that difference. The source timestamps of the two inputs should
+	   derive from the same clock source for expected results. If "copyts"
+	   is set then "start_at_zero" must also be set. If either of the
+	   inputs has no starting timestamp then no sync adjustment is made.
+
+	   Acceptable values are those that refer to a valid ffmpeg input
+	   index. If the sync reference is the target index itself or -1, then
+	   no adjustment is made to target timestamps. A sync reference may
+	   not itself be synced to any other input.
+
+	   Default value is -1.
+
        -itsoffset offset (input)
 	   Set the input time offset.
 
@@ -1004,21 +1028,21 @@ OPTIONS
 		   <pal>:
 		   -f vcd -muxrate 1411200 -muxpreload 0.44 -packetsize 2324
 		   -s 352x288 -r 25
-		   -codec:v mpeg1video -g 15 -b:v 1150k -maxrate:v 1150v -minrate:v 1150k -bufsize:v 327680
+		   -codec:v mpeg1video -g 15 -b:v 1150k -maxrate:v 1150k -minrate:v 1150k -bufsize:v 327680
 		   -ar 44100 -ac 2
 		   -codec:a mp2 -b:a 224k
 
 		   <ntsc>:
 		   -f vcd -muxrate 1411200 -muxpreload 0.44 -packetsize 2324
 		   -s 352x240 -r 30000/1001
-		   -codec:v mpeg1video -g 18 -b:v 1150k -maxrate:v 1150v -minrate:v 1150k -bufsize:v 327680
+		   -codec:v mpeg1video -g 18 -b:v 1150k -maxrate:v 1150k -minrate:v 1150k -bufsize:v 327680
 		   -ar 44100 -ac 2
 		   -codec:a mp2 -b:a 224k
 
 		   <film>:
 		   -f vcd -muxrate 1411200 -muxpreload 0.44 -packetsize 2324
 		   -s 352x240 -r 24000/1001
-		   -codec:v mpeg1video -g 18 -b:v 1150k -maxrate:v 1150v -minrate:v 1150k -bufsize:v 327680
+		   -codec:v mpeg1video -g 18 -b:v 1150k -maxrate:v 1150k -minrate:v 1150k -bufsize:v 327680
 		   -ar 44100 -ac 2
 		   -codec:a mp2 -b:a 224k
 
@@ -1244,8 +1268,18 @@ OPTIONS
 	   versions of FFmpeg).  If in doubt use -framerate instead of the
 	   input option -r.
 
-	   As an output option, duplicate or drop input frames to achieve
-	   constant output frame rate fps.
+	   As an output option:
+
+	   video encoding
+	       Duplicate or drop frames right before encoding them to achieve
+	       constant output frame rate fps.
+
+	   video streamcopy
+	       Indicate to the muxer that fps is the stream frame rate. No
+	       data is dropped or duplicated in this case. This may produce
+	       invalid files if fps does not match the actual stream frame
+	       rate as determined by packet timestamps.  See also the "setts"
+	       bitstream filter.
 
        -fpsmax[:stream_specifier] fps (output,per-stream)
 	   Set maximum frame rate (Hz value, fraction or abbreviation).
@@ -1280,6 +1314,32 @@ OPTIONS
 	   If used together with -vcodec copy, it will affect the aspect ratio
 	   stored at container level, but not the aspect ratio stored in
 	   encoded frames, if it exists.
+
+       -display_rotation[:stream_specifier] rotation (input,per-stream)
+	   Set video rotation metadata.
+
+	   rotation is a decimal number specifying the amount in degree by
+	   which the video should be rotated counter-clockwise before being
+	   displayed.
+
+	   This option overrides the rotation/display transform metadata
+	   stored in the file, if any. When the video is being transcoded
+	   (rather than copied) and "-autorotate" is enabled, the video will
+	   be rotated at the filtering stage. Otherwise, the metadata will be
+	   written into the output file if the muxer supports it.
+
+	   If the "-display_hflip" and/or "-display_vflip" options are given,
+	   they are applied after the rotation specified by this option.
+
+       -display_hflip[:stream_specifier] (input,per-stream)
+	   Set whether on display the image should be horizontally flipped.
+
+	   See the "-display_rotation" option for more details.
+
+       -display_vflip[:stream_specifier] (input,per-stream)
+	   Set whether on display the image should be vertically flipped.
+
+	   See the "-display_rotation" option for more details.
 
        -vn (input/output)
 	   As an input option, blocks all video streams of a file from being
@@ -1340,7 +1400,11 @@ OPTIONS
 	   the input (or graph output) and automatic conversions are disabled.
 
        -sws_flags flags (input/output)
-	   Set SwScaler flags.
+	   Set default flags for the libswscale library. These flags are used
+	   by automatically inserted "scale" filters and those within simple
+	   filtergraphs, if not overridden within the filtergraph definition.
+
+	   See the ffmpeg-scaler manual for a list of scaler options.
 
        -rc_override[:stream_specifier] override (output,per-stream)
 	   Rate control override for specific intervals, formatted as
@@ -1348,46 +1412,24 @@ OPTIONS
 	   beginning and end frame numbers, last one is quantizer to use if
 	   positive, or quality factor if negative.
 
-       -ilme
-	   Force interlacing support in encoder (MPEG-2 and MPEG-4 only).  Use
-	   this option if your input file is interlaced and you want to keep
-	   the interlaced format for minimum losses.  The alternative is to
-	   deinterlace the input stream by use of a filter such as "yadif" or
-	   "bwdif", but deinterlacing introduces losses.
-
        -psnr
-	   Calculate PSNR of compressed frames.
+	   Calculate PSNR of compressed frames. This option is deprecated,
+	   pass the PSNR flag to the encoder instead, using "-flags +psnr".
 
        -vstats
-	   Dump video coding statistics to vstats_HHMMSS.log.
+	   Dump video coding statistics to vstats_HHMMSS.log. See the vstats
+	   file format section for the format description.
 
        -vstats_file file
-	   Dump video coding statistics to file.
+	   Dump video coding statistics to file. See the vstats file format
+	   section for the format description.
 
        -vstats_version file
-	   Specifies which version of the vstats format to use. Default is 2.
-
-	   version = 1 :
-
-	   "frame= %5d q= %2.1f PSNR= %6.2f f_size= %6d s_size= %8.0fkB time=
-	   %0.3f br= %7.1fkbits/s avg_br= %7.1fkbits/s"
-
-	   version > 1:
-
-	   "out= %2d st= %2d frame= %5d q= %2.1f PSNR= %6.2f f_size= %6d
-	   s_size= %8.0fkB time= %0.3f br= %7.1fkbits/s avg_br= %7.1fkbits/s"
-
-       -top[:stream_specifier] n (output,per-stream)
-	   top=1/bottom=0/auto=-1 field first
-
-       -dc precision
-	   Intra_dc_precision.
+	   Specify which version of the vstats format to use. Default is 2.
+	   See the vstats file format section for the format description.
 
        -vtag fourcc/tag (output)
 	   Force video tag/fourcc. This is an alias for "-tag:v".
-
-       -qphist (global)
-	   Show QP histogram
 
        -vbsf bitstream_filter
 	   Deprecated see -bsf
@@ -1395,7 +1437,6 @@ OPTIONS
        -force_key_frames[:stream_specifier] time[,time...] (output,per-stream)
        -force_key_frames[:stream_specifier] expr:expr (output,per-stream)
        -force_key_frames[:stream_specifier] source (output,per-stream)
-       -force_key_frames[:stream_specifier] source_no_drop (output,per-stream)
 	   force_key_frames can take arguments of the following form:
 
 	   time[,time...]
@@ -1455,14 +1496,9 @@ OPTIONS
 	   source
 	       If the argument is "source", ffmpeg will force a key frame if
 	       the current frame being encoded is marked as a key frame in its
-	       source.
-
-	   source_no_drop
-	       If the argument is "source_no_drop", ffmpeg will force a key
-	       frame if the current frame being encoded is marked as a key
-	       frame in its source.  In cases where this particular source
-	       frame has to be dropped, enforce the next available frame to
-	       become a key frame instead.
+	       source.	In cases where this particular source frame has to be
+	       dropped, enforce the next available frame to become a key frame
+	       instead.
 
 	   Note that forcing too many keyframes is very harmful for the
 	   lookahead algorithms of certain encoders: using fixed-GOP options
@@ -1504,10 +1540,11 @@ OPTIONS
 	       device is the number of the Direct3D 11 display adapter.
 
 	   vaapi
-	       device is either an X11 display name or a DRM render node.  If
-	       not specified, it will attempt to open the default X11 display
-	       ($DISPLAY) and then the first DRM render node
-	       (/dev/dri/renderD128).
+	       device is either an X11 display name, a DRM render node or a
+	       DirectX adapter index.  If not specified, it will attempt to
+	       open the default X11 display ($DISPLAY) and then the first DRM
+	       render node (/dev/dri/renderD128), or the default DirectX
+	       adapter on Windows.
 
 	   vdpau
 	       device is an X11 display name.  If not specified, it will
@@ -1695,6 +1732,23 @@ OPTIONS
 	   ffmpeg.  Actual runtime availability depends on the hardware and
 	   its suitable driver being installed.
 
+       -fix_sub_duration_heartbeat[:stream_specifier]
+	   Set a specific output video stream as the heartbeat stream
+	   according to which to split and push through currently in-progress
+	   subtitle upon receipt of a random access packet.
+
+	   This lowers the latency of subtitles for which the end packet or
+	   the following subtitle has not yet been received. As a drawback,
+	   this will most likely lead to duplication of subtitle events in
+	   order to cover the full duration, so when dealing with use cases
+	   where latency of when the subtitle event is passed on to output is
+	   not relevant this option should not be utilized.
+
+	   Requires -fix_sub_duration to be set for the relevant input
+	   subtitle stream for this to have any effect, as well as for the
+	   input subtitle stream having to be directly mapped to the same
+	   output in which the heartbeat stream resides.
+
    Audio Options
        -aframes number (output)
 	   Set the number of audio frames to output. This is an obsolete alias
@@ -1788,19 +1842,18 @@ OPTIONS
 	   Set the size of the canvas used to render subtitles.
 
    Advanced options
-       -map
-       [-]input_file_id[:stream_specifier][?][,sync_file_id[:stream_specifier]]
-       | [linklabel] (output)
-	   Designate one or more input streams as a source for the output
-	   file. Each input stream is identified by the input file index
-	   input_file_id and the input stream index input_stream_id within the
-	   input file. Both indices start at 0. If specified,
-	   sync_file_id:stream_specifier sets which input stream is used as a
-	   presentation sync reference.
+       -map [-]input_file_id[:stream_specifier][?] | [linklabel] (output)
+	   Create one or more streams in the output file. This option has two
+	   forms for specifying the data source(s): the first selects one or
+	   more streams from some input file (specified with "-i"), the second
+	   takes an output from some complex filtergraph (specified with
+	   "-filter_complex" or "-filter_complex_script").
 
-	   The first "-map" option on the command line specifies the source
-	   for output stream 0, the second "-map" option specifies the source
-	   for output stream 1, etc.
+	   In the first form, an output stream is created for every stream
+	   from the input file with the index input_file_id. If
+	   stream_specifier is given, only those streams that match the
+	   specifier are used (see the Stream specifiers section for the
+	   stream_specifier syntax).
 
 	   A "-" character before the stream identifier creates a "negative"
 	   mapping.  It disables matching streams from already created
@@ -1817,47 +1870,64 @@ OPTIONS
 	   linklabel must correspond to a defined output link label in the
 	   graph.
 
-	   For example, to map ALL streams from the first input file to output
+	   This option may be specified multiple times, each adding more
+	   streams to the output file. Any given input stream may also be
+	   mapped any number of times as a source for different output
+	   streams, e.g. in order to use different encoding options and/or
+	   filters. The streams are created in the output in the same order in
+	   which the "-map" options are given on the commandline.
 
-		   ffmpeg -i INPUT -map 0 output
+	   Using this option disables the default mappings for this output
+	   file.
 
-	   For example, if you have two audio streams in the first input file,
-	   these streams are identified by "0:0" and "0:1". You can use "-map"
-	   to select which streams to place in an output file. For example:
+	   Examples:
 
-		   ffmpeg -i INPUT -map 0:1 out.wav
+	   map everything
+	       To map ALL streams from the first input file to output
 
-	   will map the input stream in INPUT identified by "0:1" to the
-	   (single) output stream in out.wav.
+		       ffmpeg -i INPUT -map 0 output
 
-	   For example, to select the stream with index 2 from input file
-	   a.mov (specified by the identifier "0:2"), and stream with index 6
-	   from input b.mov (specified by the identifier "1:6"), and copy them
-	   to the output file out.mov:
+	   select specific stream
+	       If you have two audio streams in the first input file, these
+	       streams are identified by 0:0 and 0:1. You can use "-map" to
+	       select which streams to place in an output file. For example:
 
-		   ffmpeg -i a.mov -i b.mov -c copy -map 0:2 -map 1:6 out.mov
+		       ffmpeg -i INPUT -map 0:1 out.wav
 
-	   To select all video and the third audio stream from an input file:
+	       will map the second input stream in INPUT to the (single)
+	       output stream in out.wav.
 
-		   ffmpeg -i INPUT -map 0:v -map 0:a:2 OUTPUT
+	   create multiple streams
+	       To select the stream with index 2 from input file a.mov
+	       (specified by the identifier 0:2), and stream with index 6 from
+	       input b.mov (specified by the identifier 1:6), and copy them to
+	       the output file out.mov:
 
-	   To map all the streams except the second audio, use negative
-	   mappings
+		       ffmpeg -i a.mov -i b.mov -c copy -map 0:2 -map 1:6 out.mov
 
-		   ffmpeg -i INPUT -map 0 -map -0:a:1 OUTPUT
+	   create multiple streams 2
+	       To select all video and the third audio stream from an input
+	       file:
 
-	   To map the video and audio streams from the first input, and using
-	   the trailing "?", ignore the audio mapping if no audio streams
-	   exist in the first input:
+		       ffmpeg -i INPUT -map 0:v -map 0:a:2 OUTPUT
 
-		   ffmpeg -i INPUT -map 0:v -map 0:a? OUTPUT
+	   negative map
+	       To map all the streams except the second audio, use negative
+	       mappings
 
-	   To pick the English audio stream:
+		       ffmpeg -i INPUT -map 0 -map -0:a:1 OUTPUT
 
-		   ffmpeg -i INPUT -map 0:m:language:eng OUTPUT
+	   optional map
+	       To map the video and audio streams from the first input, and
+	       using the trailing "?", ignore the audio mapping if no audio
+	       streams exist in the first input:
 
-	   Note that using this option disables the default mappings for this
-	   output file.
+		       ffmpeg -i INPUT -map 0:v -map 0:a? OUTPUT
+
+	   map by language
+	       To pick the English audio stream:
+
+		       ffmpeg -i INPUT -map 0:m:language:eng OUTPUT
 
        -ignore_unknown
 	   Ignore input streams with unknown type instead of failing if
@@ -1869,6 +1939,10 @@ OPTIONS
 
        -map_channel
        [input_file_id.stream_specifier.channel_id|-1][?][:output_file_id.stream_specifier]
+	   This option is deprecated and will be removed. It can be replaced
+	   by the pan filter. In some cases it may be easier to use some
+	   combination of the channelsplit, channelmap, or amerge filters.
+
 	   Map an audio channel from a given input to an output. If
 	   output_file_id.stream_specifier is not set, the audio channel will
 	   be mapped on all the audio streams.
@@ -2024,12 +2098,18 @@ OPTIONS
 	   Read input at native frame rate. This is equivalent to setting
 	   "-readrate 1".
 
-       -vsync parameter
-	   Video sync method.
+       -readrate_initial_burst seconds
+	   Set an initial read burst time, in seconds, after which
+	   -re/-readrate will be enforced.
 
-	   For compatibility reasons some of the values can be specified as
-	   numbers (shown in parentheses in the following table). This is
-	   deprecated and will stop working in the future.
+       -vsync parameter (global)
+       -fps_mode[:stream_specifier] parameter (output,per-stream)
+	   Set video sync method / framerate mode. vsync is applied to all
+	   output video streams but can be overridden for a stream by setting
+	   fps_mode. vsync is deprecated and will be removed in the future.
+
+	   For compatibility reasons some of the values for vsync can be
+	   specified as numbers (shown in parentheses in the following table).
 
 	   passthrough (0)
 	       Each frame is passed with its timestamp from the demuxer to the
@@ -2065,27 +2145,6 @@ OPTIONS
 	   frame.  The default is -1.1. One possible usecase is to avoid
 	   framedrops in case of noisy timestamps or to increase frame drop
 	   precision in case of exact timestamps.
-
-       -async samples_per_second
-	   Audio sync method. "Stretches/squeezes" the audio stream to match
-	   the timestamps, the parameter is the maximum samples per second by
-	   which the audio is changed.	-async 1 is a special case where only
-	   the start of the audio stream is corrected without any later
-	   correction.
-
-	   Note that the timestamps may be further modified by the muxer,
-	   after this.	For example, in the case that the format option
-	   avoid_negative_ts is enabled.
-
-	   This option has been deprecated. Use the "aresample" audio filter
-	   instead.
-
-       -adrift_threshold time
-	   Set the minimum difference between timestamps and audio data (in
-	   seconds) to trigger adding/dropping samples to make it match the
-	   timestamps. This option effectively is a threshold to select
-	   between hard (add/drop) and soft (squeeze/stretch) compensation.
-	   "-async" must be set to a positive value.
 
        -apad parameters (output,per-stream)
 	   Pad the output audio stream(s). This is the same as applying "-af
@@ -2134,23 +2193,24 @@ OPTIONS
 	   Default value is -1.
 
        -enc_time_base[:stream_specifier] timebase (output,per-stream)
-	   Set the encoder timebase. timebase is a floating point number, and
-	   can assume one of the following values:
+	   Set the encoder timebase. timebase can assume one of the following
+	   values:
 
 	   0   Assign a default value according to the media type.
 
 	       For video - use 1/framerate, for audio - use 1/samplerate.
 
-	   -1  Use the input stream timebase when possible.
+	   demux
+	       Use the timebase from the demuxer.
 
-	       If an input stream is not available, the default timebase will
-	       be used.
+	   filter
+	       Use the timebase from the filtergraph.
 
-	   >0  Use the provided number as the timebase.
+	   a positive number
+	       Use the provided number as the timebase.
 
 	       This field can be provided as a ratio of two integers (e.g.
-	       1:24, 1:48000) or as a floating point number (e.g. 0.04166,
-	       2.0833e-5)
+	       1:24, 1:48000) or as a decimal number (e.g. 0.04166, 2.0833e-5)
 
 	   Default value is 0.
 
@@ -2158,15 +2218,55 @@ OPTIONS
 	   Enable bitexact mode for (de)muxer and (de/en)coder
 
        -shortest (output)
-	   Finish encoding when the shortest input stream ends.
+	   Finish encoding when the shortest output stream ends.
 
-       -dts_delta_threshold
-	   Timestamp discontinuity delta threshold.
+	   Note that this option may require buffering frames, which
+	   introduces extra latency. The maximum amount of this latency may be
+	   controlled with the "-shortest_buf_duration" option.
 
-       -dts_error_threshold seconds
-	   Timestamp error delta threshold. This threshold use to discard
-	   crazy/damaged timestamps and the default is 30 hours which is
-	   arbitrarily picked and quite conservative.
+       -shortest_buf_duration duration (output)
+	   The "-shortest" option may require buffering potentially large
+	   amounts of data when at least one of the streams is "sparse" (i.e.
+	   has large gaps between frames X this is typically the case for
+	   subtitles).
+
+	   This option controls the maximum duration of buffered frames in
+	   seconds.  Larger values may allow the "-shortest" option to produce
+	   more accurate results, but increase memory use and latency.
+
+	   The default value is 10 seconds.
+
+       -dts_delta_threshold threshold
+	   Timestamp discontinuity delta threshold, expressed as a decimal
+	   number of seconds.
+
+	   The timestamp discontinuity correction enabled by this option is
+	   only applied to input formats accepting timestamp discontinuity
+	   (for which the "AV_FMT_DISCONT" flag is enabled), e.g. MPEG-TS and
+	   HLS, and is automatically disabled when employing the "-copy_ts"
+	   option (unless wrapping is detected).
+
+	   If a timestamp discontinuity is detected whose absolute value is
+	   greater than threshold, ffmpeg will remove the discontinuity by
+	   decreasing/increasing the current DTS and PTS by the corresponding
+	   delta value.
+
+	   The default value is 10.
+
+       -dts_error_threshold threshold
+	   Timestamp error delta threshold, expressed as a decimal number of
+	   seconds.
+
+	   The timestamp correction enabled by this option is only applied to
+	   input formats not accepting timestamp discontinuity (for which the
+	   "AV_FMT_DISCONT" flag is not enabled).
+
+	   If a timestamp discontinuity is detected whose absolute value is
+	   greater than threshold, ffmpeg will drop the PTS/DTS timestamp
+	   value.
+
+	   The default value is "3600*30" (30 hours), which is arbitrarily
+	   picked and quite conservative.
 
        -muxdelay seconds (output)
 	   Set the maximum demux-decode delay.
@@ -2294,13 +2394,16 @@ OPTIONS
 	   files which do not start from timestamp 0, such as transport
 	   streams.
 
-       -thread_queue_size size (input)
-	   This option sets the maximum number of queued packets when reading
-	   from the file or device. With low latency / high rate live streams,
-	   packets may be discarded if they are not read in a timely manner;
-	   setting this value can force ffmpeg to use a separate input thread
-	   and read packets as soon as they arrive. By default ffmpeg only do
-	   this if multiple inputs are specified.
+       -thread_queue_size size (input/output)
+	   For input, this option sets the maximum number of queued packets
+	   when reading from the file or device. With low latency / high rate
+	   live streams, packets may be discarded if they are not read in a
+	   timely manner; setting this value can force ffmpeg to use a
+	   separate input thread and read packets as soon as they arrive. By
+	   default ffmpeg only does this if multiple inputs are specified.
+
+	   For output, this option specified the maximum number of packets
+	   that may be queued to each muxing thread.
 
        -sdp_file file (global)
 	   Print sdp information for an output stream to file.	This allows
@@ -2381,6 +2484,126 @@ OPTIONS
 	   conform to this value. Setting values that do not match the stream
 	   properties may result in encoding failures or invalid output files.
 
+       -stats_enc_pre[:stream_specifier] path (output,per-stream)
+       -stats_enc_post[:stream_specifier] path (output,per-stream)
+       -stats_mux_pre[:stream_specifier] path (output,per-stream)
+	   Write per-frame encoding information about the matching streams
+	   into the file given by path.
+
+	   -stats_enc_pre writes information about raw video or audio frames
+	   right before they are sent for encoding, while -stats_enc_post
+	   writes information about encoded packets as they are received from
+	   the encoder.  -stats_mux_pre writes information about packets just
+	   as they are about to be sent to the muxer. Every frame or packet
+	   produces one line in the specified file. The format of this line is
+	   controlled by -stats_enc_pre_fmt / -stats_enc_post_fmt /
+	   -stats_mux_pre_fmt.
+
+	   When stats for multiple streams are written into a single file, the
+	   lines corresponding to different streams will be interleaved. The
+	   precise order of this interleaving is not specified and not
+	   guaranteed to remain stable between different invocations of the
+	   program, even with the same options.
+
+       -stats_enc_pre_fmt[:stream_specifier] format_spec (output,per-stream)
+       -stats_enc_post_fmt[:stream_specifier] format_spec (output,per-stream)
+       -stats_mux_pre_fmt[:stream_specifier] format_spec (output,per-stream)
+	   Specify the format for the lines written with -stats_enc_pre /
+	   -stats_enc_post / -stats_mux_pre.
+
+	   format_spec is a string that may contain directives of the form
+	   {fmt}. format_spec is backslash-escaped --- use \{, \}, and \\ to
+	   write a literal {, }, or \, respectively, into the output.
+
+	   The directives given with fmt may be one of the following:
+
+	   fidx
+	       Index of the output file.
+
+	   sidx
+	       Index of the output stream in the file.
+
+	   n   Frame number. Pre-encoding: number of frames sent to the
+	       encoder so far.	Post-encoding: number of packets received from
+	       the encoder so far.  Muxing: number of packets submitted to the
+	       muxer for this stream so far.
+
+	   ni  Input frame number. Index of the input frame (i.e. output by a
+	       decoder) that corresponds to this output frame or packet. -1 if
+	       unavailable.
+
+	   tb  Timebase in which this frame/packet's timestamps are expressed,
+	       as a rational number num/den. Note that encoder and muxer may
+	       use different timebases.
+
+	   tbi Timebase for ptsi, as a rational number num/den. Available when
+	       ptsi is available, 0/1 otherwise.
+
+	   pts Presentation timestamp of the frame or packet, as an integer.
+	       Should be multiplied by the timebase to compute presentation
+	       time.
+
+	   ptsi
+	       Presentation timestamp of the input frame (see ni), as an
+	       integer. Should be multiplied by tbi to compute presentation
+	       time. Printed as (2^63 - 1 = 9223372036854775807) when not
+	       available.
+
+	   t   Presentation time of the frame or packet, as a decimal number.
+	       Equal to pts multiplied by tb.
+
+	   ti  Presentation time of the input frame (see ni), as a decimal
+	       number. Equal to ptsi multiplied by tbi. Printed as inf when
+	       not available.
+
+	   dts (packet)
+	       Decoding timestamp of the packet, as an integer. Should be
+	       multiplied by the timebase to compute presentation time.
+
+	   dt (packet)
+	       Decoding time of the frame or packet, as a decimal number.
+	       Equal to dts multiplied by tb.
+
+	   sn (frame,audio)
+	       Number of audio samples sent to the encoder so far.
+
+	   samp (frame,audio)
+	       Number of audio samples in the frame.
+
+	   size (packet)
+	       Size of the encoded packet in bytes.
+
+	   br (packet)
+	       Current bitrate in bits per second. Post-encoding only.
+
+	   abr (packet)
+	       Average bitrate for the whole stream so far, in bits per
+	       second, -1 if it cannot be determined at this point. Post-
+	       encoding only.
+
+	   Directives tagged with packet may only be used with
+	   -stats_enc_post_fmt and -stats_mux_pre_fmt.
+
+	   Directives tagged with frame may only be used with
+	   -stats_enc_pre_fmt.
+
+	   Directives tagged with audio may only be used with audio streams.
+
+	   The default format strings are:
+
+	   pre-encoding
+	       {fidx} {sidx} {n} {t}
+
+	   post-encoding
+	       {fidx} {sidx} {n} {t}
+
+	   In the future, new items may be added to the end of the default
+	   formatting strings. Users who depend on the format staying exactly
+	   the same, should prescribe it manually.
+
+	   Note that stats for different streams written into the same file
+	   may have different formats.
+
    Preset files
        A preset file contains a sequence of option=value pairs, one for each
        line, specifying a sequence of options which would be awkward to
@@ -2435,6 +2658,55 @@ OPTIONS
 
        If no such file is found, then ffmpeg will search for a file named
        arg.avpreset in the same directories.
+
+   vstats file format
+       The "-vstats" and "-vstats_file" options enable generation of a file
+       containing statistics about the generated video outputs.
+
+       The "-vstats_version" option controls the format version of the
+       generated file.
+
+       With version 1 the format is:
+
+	       frame= <FRAME> q= <FRAME_QUALITY> PSNR= <PSNR> f_size= <FRAME_SIZE> s_size= <STREAM_SIZE>kB time= <TIMESTAMP> br= <BITRATE>kbits/s avg_br= <AVERAGE_BITRATE>kbits/s
+
+       With version 2 the format is:
+
+	       out= <OUT_FILE_INDEX> st= <OUT_FILE_STREAM_INDEX> frame= <FRAME_NUMBER> q= <FRAME_QUALITY>f PSNR= <PSNR> f_size= <FRAME_SIZE> s_size= <STREAM_SIZE>kB time= <TIMESTAMP> br= <BITRATE>kbits/s avg_br= <AVERAGE_BITRATE>kbits/s
+
+       The value corresponding to each key is described below:
+
+       avg_br
+	   average bitrate expressed in Kbits/s
+
+       br  bitrate expressed in Kbits/s
+
+       frame
+	   number of encoded frame
+
+       out out file index
+
+       PSNR
+	   Peak Signal to Noise Ratio
+
+       q   quality of the frame
+
+       f_size
+	   encoded packet size expressed as number of bytes
+
+       s_size
+	   stream size expressed in KiB
+
+       st  out file stream index
+
+       time
+	   time of the packet
+
+       type
+	   picture type
+
+       See also the -stats_enc options for an alternative way to show encoding
+       statistics.
 
 EXAMPLES
    Video and Audio grabbing
@@ -2595,9 +2867,9 @@ AUTHORS
        The FFmpeg developers.
 
        For details about the authorship, see the Git history of the project
-       (git://source.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
+       (https://git.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
        the FFmpeg source directory, or browsing the online repository at
-       <http://source.ffmpeg.org>.
+       <https://git.ffmpeg.org/ffmpeg>.
 
        Maintainers for the specific components are listed in the file
        MAINTAINERS in the source code tree.

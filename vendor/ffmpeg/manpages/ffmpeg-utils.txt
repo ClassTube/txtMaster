@@ -846,6 +846,9 @@ SYNTAX
        6.0(front)
 	   FL+FR+FLC+FRC+SL+SR
 
+       3.1.2
+	   FL+FR+FC+LFE+TFL+TFR
+
        hexagonal
 	   FL+FR+FC+BL+BR+BC
 
@@ -869,8 +872,23 @@ SYNTAX
        7.1(wide-side)
 	   FL+FR+FC+LFE+FLC+FRC+SL+SR
 
+       5.1.2
+	   FL+FR+FC+LFE+BL+BR+TFL+TFR
+
        octagonal
 	   FL+FR+FC+BL+BR+BC+SL+SR
+
+       cube
+	   FL+FR+BL+BR+TFL+TFR+TBL+TBR
+
+       5.1.4
+	   FL+FR+FC+LFE+BL+BR+TFL+TFR+TBL+TBR
+
+       7.1.2
+	   FL+FR+FC+LFE+BL+BR+SL+SR+TFL+TFR
+
+       7.1.4
+	   FL+FR+FC+LFE+BL+BR+SL+SR+TFL+TFR+TBL+TBR
 
        hexadecagonal
 	   FL+FR+FC+BL+BR+BC+SL+SR+WL+WR+TBL+TBR+TBC+TFC+TFL+TFR
@@ -878,18 +896,27 @@ SYNTAX
        downmix
 	   DL+DR
 
+       22.2
+	   FL+FR+FC+LFE+BL+BR+FLC+FRC+BC+SL+SR+TC+TFL+TFC+TFR+TBL+TBC+TBR+LFE2+TSL+TSR+BFC+BFL+BFR
+
        A custom channel layout can be specified as a sequence of terms,
-       separated by '+' or '|'. Each term can be:
+       separated by '+'.  Each term can be:
+
+       o   the name of a single channel (e.g. FL, FR, FC, LFE, etc.), each
+	   optionally containing a custom name after a '@', (e.g. FL@Left,
+	   FR@Right, FC@Center, LFE@Low_Frequency, etc.)
+
+       A standard channel layout can be specified by the following:
+
+       o   the name of a single channel (e.g. FL, FR, FC, LFE, etc.)
 
        o   the name of a standard channel layout (e.g. mono, stereo, 4.0,
 	   quad, 5.0, etc.)
 
-       o   the name of a single channel (e.g. FL, FR, FC, LFE, etc.)
-
        o   a number of channels, in decimal, followed by 'c', yielding the
 	   default channel layout for that number of channels (see the
-	   function "av_get_default_channel_layout"). Note that not all
-	   channel counts have a default layout.
+	   function "av_channel_layout_default"). Note that not all channel
+	   counts have a default layout.
 
        o   a number of channels, in decimal, followed by 'C', yielding an
 	   unknown channel layout with the specified number of channels. Note
@@ -904,7 +931,7 @@ SYNTAX
        channel layout mask can also be specified as a decimal number (if and
        only if not followed by "c" or "C").
 
-       See also the function "av_get_channel_layout" defined in
+       See also the function "av_channel_layout_from_string" defined in
        libavutil/channel_layout.h.
 
 EXPRESSION EVALUATION
@@ -1204,13 +1231,13 @@ EXPRESSION EVALUATION
 
        T   10^12 / 2^40
 
-       P   10^15 / 2^40
+       P   10^15 / 2^50
 
-       E   10^18 / 2^50
+       E   10^18 / 2^60
 
-       Z   10^21 / 2^60
+       Z   10^21 / 2^70
 
-       Y   10^24 / 2^70
+       Y   10^24 / 2^80
 
 SEE ALSO
        ffmpeg(1), ffplay(1), ffprobe(1), libavutil(3)
@@ -1219,9 +1246,9 @@ AUTHORS
        The FFmpeg developers.
 
        For details about the authorship, see the Git history of the project
-       (git://source.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
+       (https://git.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
        the FFmpeg source directory, or browsing the online repository at
-       <http://source.ffmpeg.org>.
+       <https://git.ffmpeg.org/ffmpeg>.
 
        Maintainers for the specific components are listed in the file
        MAINTAINERS in the source code tree.

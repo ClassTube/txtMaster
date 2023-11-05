@@ -876,9 +876,8 @@ INPUT DEVICES
        filtergraph.
 
        For each filtergraph open output, the input device will create a
-       corresponding stream which is mapped to the generated output. Currently
-       only video data is supported. The filtergraph is specified through the
-       option graph.
+       corresponding stream which is mapped to the generated output.  The
+       filtergraph is specified through the option graph.
 
        Options
 
@@ -1133,12 +1132,12 @@ INPUT DEVICES
 	   Specify the channels in use, by default 2 (stereo) is set.
 
        frame_size
-	   Specify the number of bytes per frame, by default it is set to
-	   1024.
+	   This option does nothing and is deprecated.
 
        fragment_size
-	   Specify the minimal buffering fragment in PulseAudio, it will
-	   affect the audio latency. By default it is unset.
+	   Specify the size in bytes of the minimal buffering fragment in
+	   PulseAudio, it will affect the audio latency. By default it is set
+	   to 50 ms amount of data.
 
        wallclock
 	   Set the initial PTS using the current time. Default is 1.
@@ -1607,6 +1606,11 @@ OUTPUT DEVICES
 	   Enable SMPTE Level A mode on the used output.  Must be unset, true
 	   or false.  Defaults to unset.
 
+       vanc_queue_size
+	   Sets maximum output buffer size in bytes for VANC data. If the
+	   buffering reaches this value, outgoing VANC data will be dropped.
+	   Defaults to 1048576.
+
        Examples
 
        o   List output devices:
@@ -1774,30 +1778,30 @@ OUTPUT DEVICES
 
        Options
 
-       window_title
-	   Set the SDL window title, if not specified default to the filename
-	   specified for the output device.
+       window_borderless
+	   Set SDL window border off.  Default value is 0 (enable window
+	   border).
 
-       icon_title
-	   Set the name of the iconified SDL window, if not specified it is
-	   set to the same value of window_title.
+       window_enable_quit
+	   Enable quit action (using window button or keyboard key) when non-
+	   zero value is provided.  Default value is 1 (enable quit action).
+
+       window_fullscreen
+	   Set fullscreen mode when non-zero value is provided.  Default value
+	   is zero.
 
        window_size
 	   Set the SDL window size, can be a string of the form widthxheight
 	   or a video size abbreviation.  If not specified it defaults to the
 	   size of the input video, downscaled according to the aspect ratio.
 
+       window_title
+	   Set the SDL window title, if not specified default to the filename
+	   specified for the output device.
+
        window_x
        window_y
 	   Set the position of the window on the screen.
-
-       window_fullscreen
-	   Set fullscreen mode when non-zero value is provided.  Default value
-	   is zero.
-
-       window_enable_quit
-	   Enable quit action (using window button or keyboard key) when non-
-	   zero value is provided.  Default value is 1 (enable quit action)
 
        Interactive commands
 
@@ -1890,9 +1894,9 @@ AUTHORS
        The FFmpeg developers.
 
        For details about the authorship, see the Git history of the project
-       (git://source.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
+       (https://git.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
        the FFmpeg source directory, or browsing the online repository at
-       <http://source.ffmpeg.org>.
+       <https://git.ffmpeg.org/ffmpeg>.
 
        Maintainers for the specific components are listed in the file
        MAINTAINERS in the source code tree.

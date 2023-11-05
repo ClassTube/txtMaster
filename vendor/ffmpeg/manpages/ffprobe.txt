@@ -4,7 +4,7 @@ NAME
        ffprobe - ffprobe media prober
 
 SYNOPSIS
-       ffprobe [options] [input_url]
+       ffprobe [options] input_url
 
 DESCRIPTION
        ffprobe gathers information from multimedia streams and prints it in
@@ -18,6 +18,9 @@ DESCRIPTION
        url content. If the url cannot be opened or recognized as a multimedia
        file, a positive exit code is returned.
 
+       If no output is specified as output with o ffprobe will write to
+       stdout.
+
        ffprobe may be employed both as a standalone application or in
        combination with a textual filter, which may perform more sophisticated
        processing, e.g. statistical processing or plotting.
@@ -28,7 +31,7 @@ DESCRIPTION
 
        ffprobe output is designed to be easily parsable by a textual filter,
        and consists of one or more sections of a form defined by the selected
-       writer, which is specified by the print_format option.
+       writer, which is specified by the output_format option.
 
        Sections may contain other nested sections, and are identified by a
        name (which may be shared by other sections), and an unique name. See
@@ -468,7 +471,7 @@ OPTIONS
 	   Prettify the format of the displayed values, it corresponds to the
 	   options "-unit -prefix -byte_binary_prefix -sexagesimal".
 
-       -of, -print_format writer_name[=writer_options]
+       -output_format, -of, -print_format writer_name[=writer_options]
 	   Set the output printing format.
 
 	   writer_name specifies the name of the writer, and writer_options
@@ -476,7 +479,7 @@ OPTIONS
 
 	   For example for printing the output in JSON format, specify:
 
-		   -print_format json
+		   -output_format json
 
 	   For more details on the available output printing formats, see the
 	   Writers section below.
@@ -721,6 +724,10 @@ OPTIONS
        -i input_url
 	   Read input_url.
 
+       -o output_url
+	   Write output to output_url. If not specified, the output is sent to
+	   stdout.
+
 WRITERS
        A writer defines the output format adopted by ffprobe, and will be used
        for printing all the parts of the output.
@@ -959,9 +966,9 @@ AUTHORS
        The FFmpeg developers.
 
        For details about the authorship, see the Git history of the project
-       (git://source.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
+       (https://git.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
        the FFmpeg source directory, or browsing the online repository at
-       <http://source.ffmpeg.org>.
+       <https://git.ffmpeg.org/ffmpeg>.
 
        Maintainers for the specific components are listed in the file
        MAINTAINERS in the source code tree.

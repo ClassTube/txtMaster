@@ -677,6 +677,9 @@ CODEC OPTIONS
 	   ass_ro_flush_noop
 	       Do not reset ASS ReadOrder field on flush.
 
+	   icc_profiles
+	       Generate/parse embedded ICC profiles from/to colorimetry tags.
+
        export_side_data flags (decoding/encoding,audio,video,subtitles)
 	   Possible values:
 
@@ -727,6 +730,10 @@ CODEC OPTIONS
 	   documentation.
 
        level integer (encoding,audio,video)
+	   Set the encoder level. This level depends on the specific codec,
+	   and might correspond to the profile level. It is set by default to
+	   unknown.
+
 	   Possible values:
 
 	   unknown
@@ -795,7 +802,6 @@ CODEC OPTIONS
 
        rc_max_vbv_use float (encoding,video)
        rc_min_vbv_use float (encoding,video)
-       ticks_per_frame integer (decoding/encoding,audio,video)
        color_primaries integer (decoding/encoding,video)
 	   Possible values:
 
@@ -940,10 +946,12 @@ CODEC OPTIONS
 
 	   tv
 	   mpeg
+	   limited
 	       MPEG (219*2^(n-8))
 
 	   pc
 	   jpeg
+	   full
 	       JPEG (2^n-1)
 
        chroma_sample_location integer (decoding/encoding,video)
@@ -1116,14 +1124,18 @@ VIDEO DECODERS
        framethreads
 	   Set amount of frame threads to use during decoding. The default
 	   value is 0 (autodetect).  This option is deprecated for libdav1d >=
-	   1.0 and will be removed in the future. Use the global option
-	   "threads" instead.
+	   1.0 and will be removed in the future. Use the option
+	   "max_frame_delay" and the global option "threads" instead.
 
        tilethreads
 	   Set amount of tile threads to use during decoding. The default
 	   value is 0 (autodetect).  This option is deprecated for libdav1d >=
 	   1.0 and will be removed in the future. Use the global option
 	   "threads" instead.
+
+       max_frame_delay
+	   Set max amount of frames the decoder may buffer internally. The
+	   default value is 0 (autodetect).
 
        filmgrain
 	   Apply film grain to the decoded video if present in the bitstream.
@@ -1193,6 +1205,16 @@ VIDEO DECODERS
        load_plugins
 	   A :-separate list of hexadecimal plugin UIDs to load in an internal
 	   session
+
+   v210
+       Uncompressed 4:2:2 10-bit decoder.
+
+       Options
+
+       custom_stride
+	   Set the line size of the v210 data in bytes. The default value is 0
+	   (autodetect). You can use the special -1 value for a strideless
+	   v210 as seen in BOXX files.
 
 AUDIO DECODERS
        A description of some of the currently available audio decoders
@@ -1330,6 +1352,161 @@ SUBTITLES DECODERS
 	   height ruby text.
 
 	   Enabled by default.
+
+   libaribcaption
+       Yet another ARIB STD-B24 caption decoder using external libaribcaption
+       library.
+
+       Implements profiles A and C of the Japanse ARIB STD-B24 standard,
+       Brazilian ABNT NBR 15606-1, and Philippines version of ISDB-T.
+
+       Requires the presence of the libaribcaption headers and library
+       (<https://github.com/xqq/libaribcaption>) during configuration.	You
+       need to explicitly configure the build with "--enable-libaribcaption".
+       If both libaribb24 and libaribcaption are enabled, libaribcaption
+       decoder precedes.
+
+       libaribcaption Decoder Options
+
+       -sub_type subtitle_type
+	   Specifies the format of the decoded subtitles.
+
+	   bitmap
+	       Graphical image.
+
+	   ass ASS formatted text.
+
+	   text
+	       Simple text based output without formatting.
+
+	   The default is ass as same as libaribb24 decoder.  Some present
+	   players (e.g., mpv) expect ASS format for ARIB caption.
+
+       -caption_encoding encoding_scheme
+	   Specifies the encoding scheme of input subtitle text.
+
+	   auto
+	       Automatically detect text encoding (default).
+
+	   jis 8bit-char JIS encoding defined in ARIB STD B24.	This encoding
+	       used in Japan for ISDB captions.
+
+	   utf8
+	       UTF-8 encoding defined in ARIB STD B24.	This encoding is used
+	       in Philippines for ISDB-T captions.
+
+	   latin
+	       Latin character encoding defined in ABNT NBR 15606-1.  This
+	       encoding is used in South America for SBTVD / ISDB-Tb captions.
+
+       -font font_name[,font_name2,...]
+	   Specify comma-separated list of font family names to be used for
+	   bitmap or ass type subtitle rendering.  Only first font name is
+	   used for ass type subtitle.
+
+	   If not specified, use internaly defined default font family.
+
+       -ass_single_rect boolean
+	   ARIB STD-B24 specifies that some captions may be displayed at
+	   different positions at a time (multi-rectangle subtitle).  Since
+	   some players (e.g., old mpv) can't handle multiple ASS rectangles
+	   in a single AVSubtitle, or multiple ASS rectangles of indeterminate
+	   duration with the same start timestamp, this option can change the
+	   behavior so that all the texts are displayed in a single ASS
+	   rectangle.
+
+	   The default is false.
+
+	   If your player cannot handle AVSubtitles with multiple ASS
+	   rectangles properly, set this option to true or define
+	   ASS_SINGLE_RECT=1 to change default behavior at compilation.
+
+       -force_outline_text boolean
+	   Specify whether always render outline text for all characters
+	   regardless of the indication by charactor style.
+
+	   The default is false.
+
+       -outline_width number (0.0 - 3.0)
+	   Specify width for outline text, in dots (relative).
+
+	   The default is 1.5.
+
+       -ignore_background boolean
+	   Specify whether to ignore background color rendering.
+
+	   The default is false.
+
+       -ignore_ruby boolean
+	   Specify whether to ignore rendering for ruby-like (furigana)
+	   characters.
+
+	   The default is false.
+
+       -replace_drcs boolean
+	   Specify whether to render replaced DRCS characters as Unicode
+	   characters.
+
+	   The default is true.
+
+       -replace_msz_ascii boolean
+	   Specify whether to replace MSZ (Middle Size; half width) fullwidth
+	   alphanumerics with halfwidth alphanumerics.
+
+	   The default is true.
+
+       -replace_msz_japanese boolean
+	   Specify whether to replace some MSZ (Middle Size; half width)
+	   fullwidth japanese special characters with halfwidth ones.
+
+	   The default is true.
+
+       -replace_msz_glyph boolean
+	   Specify whether to replace MSZ (Middle Size; half width) characters
+	   with halfwidth glyphs if the fonts supports it.  This option works
+	   under FreeType or DirectWrite renderer with Adobe-Japan1 compliant
+	   fonts.  e.g., IBM Plex Sans JP, Morisawa BIZ UDGothic, Morisawa BIZ
+	   UDMincho, Yu Gothic, Yu Mincho, and Meiryo.
+
+	   The default is true.
+
+       -canvas_size image_size
+	   Specify the resolution of the canvas to render subtitles to;
+	   usually, this should be frame size of input video.  This only
+	   applies when "-subtitle_type" is set to bitmap.
+
+	   The libaribcaption decoder assumes input frame size for bitmap
+	   rendering as below:
+
+	   1.  PROFILE_A : 1440 x 1080 with SAR (PAR) 4:3
+
+	   2.  PROFILE_C : 320 x 180 with SAR (PAR) 1:1
+
+	   If actual frame size of input video does not match above
+	   assumption, the rendered captions may be distorted.	To make the
+	   captions undistorted, add "-canvas_size" option to specify actual
+	   input video size.
+
+	   Note that the "-canvas_size" option is not required for video with
+	   different size but same aspect ratio.  In such cases, the caption
+	   will be stretched or shrunk to actual video size if "-canvas_size"
+	   option is not specified.  If "-canvas_size" option is specified
+	   with different size, the caption will be stretched or shrunk as
+	   specified size with calculated SAR.
+
+       libaribcaption decoder usage examples
+
+       Display MPEG-TS file with ARIB subtitle by "ffplay" tool:
+
+	       ffplay -sub_type bitmap MPEG.TS
+
+       Display MPEG-TS file with input frame size 1920x1080 by "ffplay" tool:
+
+	       ffplay -sub_type bitmap -canvas_size 1920x1080 MPEG.TS
+
+       Embed ARIB subtitle in transcoded video:
+
+	       ffmpeg -sub_type bitmap -i src.m2t -filter_complex "[0:v][0:s]overlay" -vcodec h264 dest.mp4
 
    dvbsub
        Options
@@ -2197,6 +2374,11 @@ AUDIO ENCODERS
 
 	   Default value is 0.
 
+       frame_length
+	   Set the audio frame length in samples. Default value is the
+	   internal default of the library. Refer to the library's
+	   documentation for information about supported values.
+
        Examples
 
        o   Use ffmpeg to convert an audio file to VBR AAC in an M4A (MP4)
@@ -2255,6 +2437,14 @@ AUDIO ENCODERS
 	   Enable the encoder to use ABR when set to 1. The lame --abr sets
 	   the target bitrate, while this options only tells FFmpeg to use ABR
 	   still relies on b to set bitrate.
+
+       copyright (-c)
+	   Set MPEG audio copyright flag when set to 1. The default value is 0
+	   (disabled).
+
+       original (-o)
+	   Set MPEG audio original flag when set to 1. The default value is 1
+	   (enabled).
 
    libopencore-amrnb
        OpenCORE Adaptive Multi-Rate Narrowband encoder.
@@ -2345,13 +2535,16 @@ AUDIO ENCODERS
 	       Favor faithfulness to the input (the default).
 
 	   lowdelay
-	       Restrict to only the lowest delay modes.
+	       Restrict to only the lowest delay modes by disabling voice-
+	       optimized modes.
 
        cutoff (N.A.)
 	   Set cutoff bandwidth in Hz. The argument must be exactly one of the
 	   following: 4000, 6000, 8000, 12000, or 20000, corresponding to
 	   narrowband, mediumband, wideband, super wideband, and fullband
-	   respectively. The default is 0 (cutoff disabled).
+	   respectively. The default is 0 (cutoff disabled). Note that libopus
+	   forces a wideband cutoff for bitrates < 15 kbps, unless CELT-only
+	   (application set to lowdelay) mode is used.
 
        mapping_family (mapping_family)
 	   Set channel mapping family to be used by the encoder. The default
@@ -2611,6 +2804,48 @@ VIDEO ENCODERS
    a64_multi, a64_multi5
        A64 / Commodore 64 multicolor charset encoder. "a64_multi5" is extended
        with 5th color (colram).
+
+   Cinepak
+       Cinepak aka CVID encoder.  Compatible with Windows 3.1 and vintage
+       MacOS.
+
+       Options
+
+       g integer
+	   Keyframe interval.  A keyframe is inserted at least every "-g"
+	   frames, sometimes sooner.
+
+       q:v integer
+	   Quality factor. Lower is better. Higher gives lower bitrate.  The
+	   following table lists bitrates when encoding akiyo_cif.y4m for
+	   various values of "-q:v" with "-g 100":
+
+	   "-q:v 1" 1918 kb/s
+	   "-q:v 2" 1735 kb/s
+	   "-q:v 4" 1500 kb/s
+	   "-q:v 10" 1041 kb/s
+	   "-q:v 20" 826 kb/s
+	   "-q:v 40" 553 kb/s
+	   "-q:v 100" 394 kb/s
+	   "-q:v 200" 312 kb/s
+	   "-q:v 400" 266 kb/s
+	   "-q:v 1000" 237 kb/s
+       max_extra_cb_iterations integer
+	   Max extra codebook recalculation passes, more is better and slower.
+
+       skip_empty_cb boolean
+	   Avoid wasting bytes, ignore vintage MacOS decoder.
+
+       max_strips integer
+       min_strips integer
+	   The minimum and maximum number of strips to use.  Wider range
+	   sometimes improves quality.	More strips is generally better
+	   quality but costs more bits.  Fewer strips tend to yield more
+	   keyframes.  Vintage compatible is 1..3.
+
+       strip_number_adaptivity integer
+	   How much number of strips is allowed to change between frames.
+	   Higher is better but slower.
 
    GIF
        GIF image/animation encoder.
@@ -3080,25 +3315,13 @@ VIDEO ENCODERS
 	       This is the default.
 
 	   high
-       rc  Set the rate control mode to use.
-
-	   Possible modes:
-
-	   cqp Constant quantizer: use fixed values of qindex (dependent on
-	       the frame type) throughout the stream.  This mode is the
-	       default.
-
-	   vbr Variable bitrate: use a target bitrate for the whole stream.
-
-	   cvbr
-	       Constrained variable bitrate: use a target bitrate for each
-	       GOP.
-
        qmax
 	   Set the maximum quantizer to use when using a bitrate mode.
 
        qmin
 	   Set the minimum quantizer to use when using a bitrate mode.
+
+       crf Constant rate factor value used in crf rate control mode (0-63).
 
        qp  Set the quantizer used in cqp rate control mode (0-63).
 
@@ -3109,14 +3332,51 @@ VIDEO ENCODERS
 	   Set number of frames to look ahead (0-120).
 
        preset
-	   Set the quality-speed tradeoff, in the range 0 to 8.  Higher values
-	   are faster but lower quality.  Defaults to 8 (highest speed).
+	   Set the quality-speed tradeoff, in the range 0 to 13.  Higher
+	   values are faster but lower quality.
 
        tile_rows
 	   Set log2 of the number of rows of tiles to use (0-6).
 
        tile_columns
 	   Set log2 of the number of columns of tiles to use (0-4).
+
+       svtav1-params
+	   Set SVT-AV1 options using a list of key=value pairs separated by
+	   ":". See the SVT-AV1 encoder user guide for a list of accepted
+	   parameters.
+
+   libjxl
+       libjxl JPEG XL encoder wrapper.
+
+       Requires the presence of the libjxl headers and library during
+       configuration. You need to explicitly configure the build with
+       "--enable-libjxl".
+
+       Options
+
+       The libjxl wrapper supports the following options:
+
+       distance
+	   Set the target Butteraugli distance. This is a quality setting:
+	   lower distance yields higher quality, with distance=1.0 roughly
+	   comparable to libjpeg Quality 90 for photographic content. Setting
+	   distance=0.0 yields true lossless encoding. Valid values range
+	   between 0.0 and 15.0, and sane values rarely exceed 5.0. Setting
+	   distance=0.1 usually attains transparency for most input. The
+	   default is 1.0.
+
+       effort
+	   Set the encoding effort used. Higher effort values produce more
+	   consistent quality and usually produces a better quality/bpp curve,
+	   at the cost of more CPU time required. Valid values range from 1 to
+	   9, and the default is 7.
+
+       modular
+	   Force the encoder to use Modular mode instead of choosing
+	   automatically. The default is to use VarDCT for lossy encoding and
+	   Modular for lossless. VarDCT is generally superior to Modular for
+	   lossy encoding but does not support lossless encoding.
 
    libkvazaar
        Kvazaar H.265/HEVC encoder.
@@ -3161,22 +3421,6 @@ VIDEO ENCODERS
        slices
 	   Set the number of slices, used in parallelized encoding. Default
 	   value is 0. This is only used when slice_mode is set to fixed.
-
-       slice_mode
-	   Set slice mode. Can assume one of the following possible values:
-
-	   fixed
-	       a fixed number of slices
-
-	   rowmb
-	       one slice per row of macroblocks
-
-	   auto
-	       automatic number of slices according to number of threads
-
-	   dyn dynamic slicing
-
-	   Default value is auto.
 
        loopfilter
 	   Enable loop filter, if set to 1 (automatically enabled). To disable
@@ -3275,7 +3519,11 @@ VIDEO ENCODERS
        g (kf-max-dist)
        keyint_min (kf-min-dist)
        qmin (min-q)
+	   Minimum (Best Quality) Quantizer.
+
        qmax (max-q)
+	   Maximum (Worst Quality) Quantizer.  Can be changed per-frame.
+
        bufsize (buf-sz, buf-optimal-sz)
 	   Set ratecontrol buffer size (in bits). Note vpxenc's options are
 	   specified in milliseconds, the libvpx wrapper converts this value
@@ -3366,6 +3614,10 @@ VIDEO ENCODERS
 	   rc-lookahead, lag-in-frames (lag-in-frames)
 	       Set number of frames to look ahead for frametype and
 	       ratecontrol.
+
+	   min-gf-interval
+	       Set minimum golden/alternate reference frame interval (VP9
+	       only).
 
        error-resilient
 	   Enable error resiliency features.
@@ -3555,12 +3807,10 @@ VIDEO ENCODERS
 	   This maps to the method option in libwebp. The valid range is 0 to
 	   6.  Default is 4.
 
-       -qscale float
-	   For lossy encoding, this controls image quality, 0 to 100. For
-	   lossless encoding, this controls the effort and time spent at
-	   compressing more. The default value is 75. Note that for usage via
-	   libavcodec, this option is called global_quality and must be
-	   multiplied by FF_QP2LAMBDA.
+       -quality float
+	   For lossy encoding, this controls image quality. For lossless
+	   encoding, this controls the effort and time spent in compression.
+	   Range is 0 to 100. Default is 75.
 
        -preset type
 	   Configuration preset. This does some automatic settings based on
@@ -3655,6 +3905,21 @@ VIDEO ENCODERS
        refs (ref)
 	   Number of reference frames each P-frame can use. The range is from
 	   0-16.
+
+       level (level)
+	   Set the "x264_param_t.i_level_idc" value in case the value is
+	   positive, it is ignored otherwise.
+
+	   This value can be set using the "AVCodecContext" API (e.g. by
+	   setting the "AVCodecContext" value directly), and is specified as
+	   an integer mapped on a corresponding level (e.g. the value 31 maps
+	   to H.264 level IDC "3.1", as defined in the "x264_levels" table).
+	   It is ignored when set to a non positive value.
+
+	   Alternatively it can be set as a private option, overriding the
+	   value set in "AVCodecContext", and in this case must be specified
+	   as the level IDC identifier (e.g. "3.1"), as defined by H.264 Annex
+	   A.
 
        sc_threshold (scenecut)
 	   Sets the threshold for the scene change detection.
@@ -3943,6 +4208,10 @@ VIDEO ENCODERS
 	   Import user data unregistered SEI if available into output. Default
 	   is 0 (off).
 
+       mb_info boolean
+	   Set mb_info data through AVFrameSideData, only useful when used
+	   from the API. Default is 0 (off).
+
        x264-params (N.A.)
 	   Override the x264 configuration using a :-separated list of
 	   key=value parameters.
@@ -4128,25 +4397,23 @@ VIDEO ENCODERS
 	       Place global headers in extradata instead of every keyframe.
 
        trellis
-       me_method
-	   Set motion estimation method. Possible values in decreasing order
-	   of speed and increasing order of quality:
+       me_quality
+	   Set motion estimation quality level. Possible values in decreasing
+	   order of speed and increasing order of quality:
 
-	   zero
-	       Use no motion estimation (default).
+	   0   Use no motion estimation (default).
 
-	   phods
-	   x1
-	   log Enable advanced diamond zonal search for 16x16 blocks and half-
-	       pixel refinement for 16x16 blocks. x1 and log are aliases for
-	       phods.
+	   1, 2
+	       Enable advanced diamond zonal search for 16x16 blocks and half-
+	       pixel refinement for 16x16 blocks.
 
-	   epzs
+	   3, 4
 	       Enable all of the things described above, plus advanced diamond
-	       zonal search for 8x8 blocks, half-pixel refinement for 8x8
-	       blocks, and motion estimation on chroma planes.
+	       zonal search for 8x8 blocks and half-pixel refinement for 8x8
+	       blocks, also enable motion estimation on chroma planes for P
+	       and B-frames.
 
-	   full
+	   5, 6
 	       Enable all of the things described above, plus extended 16x16
 	       and 8x8 blocks search.
 
@@ -4211,6 +4478,16 @@ VIDEO ENCODERS
        Video encoders can take input in either of nv12 or yuv420p form (some
        encoders support both, some support only either - in practice, nv12 is
        the safer choice, especially among HW encoders).
+
+   Microsoft RLE
+       Microsoft RLE aka MSRLE encoder.  Only 8-bit palette mode supported.
+       Compatible with Windows 3.1 and Windows 95.
+
+       Options
+
+       g integer
+	   Keyframe interval.  A keyframe is inserted at least every "-g"
+	   frames, sometimes sooner.
 
    mpeg2
        MPEG-2 video encoder.
@@ -4338,7 +4615,7 @@ VIDEO ENCODERS
 
    QSV Encoders
        The family of Intel QuickSync Video encoders (MPEG-2, H.264, HEVC,
-       JPEG/MJPEG and VP9)
+       JPEG/MJPEG, VP9, AV1)
 
        Ratecontrol Method
 
@@ -4372,9 +4649,9 @@ VIDEO ENCODERS
 	   -   VBR - variable bitrate, when maxrate is specified, but is
 	       higher than the average bitrate.
 
-	   -   AVBR - average VBR mode, when maxrate is not specified. This
-	       mode is further configured by the avbr_accuracy and
-	       avbr_convergence options.
+	   -   AVBR - average VBR mode, when maxrate is not specified, both
+	       avbr_accuracy and avbr_convergence are set to non-zero. This
+	       mode is available for H264 and HEVC on Windows.
 
        Note that depending on your system, a different mode than the one you
        specified may be selected by the encoder. Set the verbosity level to
@@ -4415,19 +4692,6 @@ VIDEO ENCODERS
 	   before the application explicitly synchronizes the result. If zero,
 	   the value is not specified.
 
-       avbr_accuracy
-	   Accuracy of the AVBR ratecontrol (unit of tenth of percent).
-
-       avbr_convergence
-	   Convergence of the AVBR ratecontrol (unit of 100 frames)
-
-	   The parameters avbr_accuracy and avbr_convergence are for the
-	   average variable bitrate control (AVBR) algorithm.  The algorithm
-	   focuses on overall encoding quality while meeting the specified
-	   bitrate, target_bitrate, within the accuracy range avbr_accuracy,
-	   after a avbr_Convergence period. This method does not follow HRD
-	   and the instant bitrate is not capped or padded.
-
        preset
 	   This option itemizes a range of choices from veryfast (best speed)
 	   to veryslow (best quality).
@@ -4446,6 +4710,61 @@ VIDEO ENCODERS
 	   For encoders set this flag to ON to reduce power consumption and
 	   GPU usage.
 
+       Runtime Options
+
+       Following options can be used durning qsv encoding.
+
+       global_quality
+       i_quant_factor
+       i_quant_offset
+       b_quant_factor
+       b_quant_offset
+	   Supported in h264_qsv and hevc_qsv.	Change these value to reset
+	   qsv codec's qp configuration.
+
+       max_frame_size
+	   Supported in h264_qsv and hevc_qsv.	Change this value to reset qsv
+	   codec's MaxFrameSize configuration.
+
+       gop_size
+	   Change this value to reset qsv codec's gop configuration.
+
+       int_ref_type
+       int_ref_cycle_size
+       int_ref_qp_delta
+       int_ref_cycle_dist
+	   Supported in h264_qsv and hevc_qsv.	Change these value to reset
+	   qsv codec's Intra Refresh configuration.
+
+       qmax
+       qmin
+       max_qp_i
+       min_qp_i
+       max_qp_p
+       min_qp_p
+       max_qp_b
+       min_qp_b
+	   Supported in h264_qsv.  Change these value to reset qsv codec's
+	   max/min qp configuration.
+
+       low_delay_brc
+	   Supported in h264_qsv, hevc_qsv and av1_qsv.  Change this value to
+	   reset qsv codec's low_delay_brc configuration.
+
+       framerate
+	   Change this value to reset qsv codec's framerate configuration.
+
+       bit_rate
+       rc_buffer_size
+       rc_initial_buffer_occupancy
+       rc_max_rate
+	   Change these value to reset qsv codec's bitrate control
+	   configuration.
+
+       pic_timing_sei
+	   Supported in h264_qsv and hevc_qsv.	Change this value to reset qsv
+	   codec's pic_timing_sei configuration.
+
        H264 options
 
        These options are used by h264_qsv
@@ -4461,6 +4780,16 @@ VIDEO ENCODERS
 
        max_frame_size
 	   Maximum encoded frame size in bytes.
+
+       max_frame_size_i
+	   Maximum encoded frame size for I frames in bytes. If this value is
+	   set as larger than zero, then for I frames the value set by
+	   max_frame_size is ignored.
+
+       max_frame_size_p
+	   Maximum encoded frame size for P frames in bytes. If this value is
+	   set as larger than zero, then for P frames the value set by
+	   max_frame_size is ignored.
 
        max_slice_size
 	   Maximum encoded slice size in bytes.
@@ -4480,6 +4809,12 @@ VIDEO ENCODERS
 	   may have negative impact on performance and objective visual
 	   quality metric.
 
+       low_delay_brc
+	   Setting this flag turns on or off LowDelayBRC feautre in qsv
+	   plugin, which provides more accurate bitrate control to minimize
+	   the variance of bitstream size frame by frame. Value: -1-default
+	   0-off 1-on
+
        adaptive_i
 	   This flag controls insertion of I frames by the QSV encoder. Turn
 	   ON this flag to allow changing of frame type from P and B to I.
@@ -4487,8 +4822,15 @@ VIDEO ENCODERS
        adaptive_b
 	   This flag controls changing of frame type from B to P.
 
+       p_strategy
+	   Enable P-pyramid: 0-default 1-simple 2-pyramid(bf need to be set to
+	   0).
+
        b_strategy
 	   This option controls usage of B frames as reference.
+
+       dblk_idc
+	   This option disable deblocking. It has value in range 0~2.
 
        cavlc
 	   If set, CAVLC is used; if unset, CABAC is used for encoding.
@@ -4527,7 +4869,10 @@ VIDEO ENCODERS
 	   encoded bitstream size caused by I frames. The SDK encoder achieves
 	   this by encoding part of each frame in refresh cycle using intra
 	   MBs. none means no refresh. vertical means vertical refresh, by
-	   column of MBs.
+	   column of MBs. horizontal means horizontal refresh, by rows of MBs.
+	   slice means horizontal refresh by slices without overlapping. In
+	   case of slice, in_ref_cycle_size is ignored. To enable intra
+	   refresh, B frame should be set to 0.
 
        int_ref_cycle_size
 	   Specifies number of pictures within refresh cycle starting from 2.
@@ -4538,6 +4883,10 @@ VIDEO ENCODERS
 	   value in [-51, 51] range if target encoding bit-depth for luma
 	   samples is 8 and this range is [-63, 63] for 10 bit-depth or [-75,
 	   75] for 12 bit-depth respectively.
+
+       int_ref_cycle_dist
+	   Distance between the beginnings of the intra-refresh cycles in
+	   frames.
 
        profile
 	   unknown
@@ -4557,6 +4906,71 @@ VIDEO ENCODERS
        repeat_pps
 	   Repeat pps for every frame.
 
+       max_qp_i
+	   Maximum video quantizer scale for I frame.
+
+       min_qp_i
+	   Minimum video quantizer scale for I frame.
+
+       max_qp_p
+	   Maximum video quantizer scale for P frame.
+
+       min_qp_p
+	   Minimum video quantizer scale for P frame.
+
+       max_qp_b
+	   Maximum video quantizer scale for B frame.
+
+       min_qp_b
+	   Minimum video quantizer scale for B frame.
+
+       scenario
+	   Provides a hint to encoder about the scenario for the encoding
+	   session.
+
+	   unknown
+	   displayremoting
+	   videoconference
+	   archive
+	   livestreaming
+	   cameracapture
+	   videosurveillance
+	   gamestreaming
+	   remotegaming
+       avbr_accuracy
+	   Accuracy of the AVBR ratecontrol (unit of tenth of percent).
+
+       avbr_convergence
+	   Convergence of the AVBR ratecontrol (unit of 100 frames)
+
+	   The parameters avbr_accuracy and avbr_convergence are for the
+	   average variable bitrate control (AVBR) algorithm.  The algorithm
+	   focuses on overall encoding quality while meeting the specified
+	   bitrate, target_bitrate, within the accuracy range avbr_accuracy,
+	   after a avbr_Convergence period. This method does not follow HRD
+	   and the instant bitrate is not capped or padded.
+
+       skip_frame
+	   Use per-frame metadata "qsv_skip_frame" to skip frame when
+	   encoding. This option defines the usage of this metadata.
+
+	   no_skip
+	       Frame skipping is disabled.
+
+	   insert_dummy
+	       Encoder inserts into bitstream frame where all macroblocks are
+	       encoded as skipped.
+
+	   insert_nothing
+	       Similar to insert_dummy, but encoder inserts nothing into
+	       bitstream. The skipped frames are still used in brc. For
+	       example, gop still include skipped frames, and the frames after
+	       skipped frames will be larger in size.
+
+	   brc_only
+	       skip_frame metadata indicates the number of missed frames
+	       before the current frame.
+
        HEVC Options
 
        These options are used by hevc_qsv
@@ -4569,6 +4983,51 @@ VIDEO ENCODERS
 	   beginning of every intra refresh cycle.
 
        rdo Enable rate distortion optimization.
+
+       max_frame_size
+	   Maximum encoded frame size in bytes.
+
+       max_frame_size_i
+	   Maximum encoded frame size for I frames in bytes. If this value is
+	   set as larger than zero, then for I frames the value set by
+	   max_frame_size is ignored.
+
+       max_frame_size_p
+	   Maximum encoded frame size for P frames in bytes. If this value is
+	   set as larger than zero, then for P frames the value set by
+	   max_frame_size is ignored.
+
+       max_slice_size
+	   Maximum encoded slice size in bytes.
+
+       mbbrc
+	   Setting this flag enables macroblock level bitrate control that
+	   generally improves subjective visual quality. Enabling this flag
+	   may have negative impact on performance and objective visual
+	   quality metric.
+
+       low_delay_brc
+	   Setting this flag turns on or off LowDelayBRC feautre in qsv
+	   plugin, which provides more accurate bitrate control to minimize
+	   the variance of bitstream size frame by frame. Value: -1-default
+	   0-off 1-on
+
+       adaptive_i
+	   This flag controls insertion of I frames by the QSV encoder. Turn
+	   ON this flag to allow changing of frame type from P and B to I.
+
+       adaptive_b
+	   This flag controls changing of frame type from B to P.
+
+       p_strategy
+	   Enable P-pyramid: 0-default 1-simple 2-pyramid(bf need to be set to
+	   0).
+
+       b_strategy
+	   This option controls usage of B frames as reference.
+
+       dblk_idc
+	   This option disable deblocking. It has value in range 0~2.
 
        idr_interval
 	   Distance (in I-frames) between IDR frames.
@@ -4591,11 +5050,20 @@ VIDEO ENCODERS
 	   is enabled.
 
        profile
+	   Set the encoding profile (scc requires libmfx >= 1.32).
+
 	   unknown
 	   main
 	   main10
 	   mainsp
 	   rext
+	   scc
+       tier
+	   Set the encoding tier (only level >= 4 can support high tier).
+	   This option only takes effect when the level option is specified.
+
+	   main
+	   high
        gpb 1: GPB (generalized P/B frame)
 
 	   0: regular P frame.
@@ -4607,6 +5075,103 @@ VIDEO ENCODERS
 	   Number of rows for tiled encoding.
 
        aud Insert the Access Unit Delimiter NAL.
+
+       pic_timing_sei
+	   Insert picture timing SEI with pic_struct_syntax element.
+
+       transform_skip
+	   Turn this option ON to enable transformskip. It is supported on
+	   platform equal or newer than ICL.
+
+       int_ref_type
+	   Specifies intra refresh type. The major goal of intra refresh is
+	   improvement of error resilience without significant impact on
+	   encoded bitstream size caused by I frames. The SDK encoder achieves
+	   this by encoding part of each frame in refresh cycle using intra
+	   MBs. none means no refresh. vertical means vertical refresh, by
+	   column of MBs. horizontal means horizontal refresh, by rows of MBs.
+	   slice means horizontal refresh by slices without overlapping. In
+	   case of slice, in_ref_cycle_size is ignored. To enable intra
+	   refresh, B frame should be set to 0.
+
+       int_ref_cycle_size
+	   Specifies number of pictures within refresh cycle starting from 2.
+	   0 and 1 are invalid values.
+
+       int_ref_qp_delta
+	   Specifies QP difference for inserted intra MBs. This is signed
+	   value in [-51, 51] range if target encoding bit-depth for luma
+	   samples is 8 and this range is [-63, 63] for 10 bit-depth or [-75,
+	   75] for 12 bit-depth respectively.
+
+       int_ref_cycle_dist
+	   Distance between the beginnings of the intra-refresh cycles in
+	   frames.
+
+       max_qp_i
+	   Maximum video quantizer scale for I frame.
+
+       min_qp_i
+	   Minimum video quantizer scale for I frame.
+
+       max_qp_p
+	   Maximum video quantizer scale for P frame.
+
+       min_qp_p
+	   Minimum video quantizer scale for P frame.
+
+       max_qp_b
+	   Maximum video quantizer scale for B frame.
+
+       min_qp_b
+	   Minimum video quantizer scale for B frame.
+
+       scenario
+	   Provides a hint to encoder about the scenario for the encoding
+	   session.
+
+	   unknown
+	   displayremoting
+	   videoconference
+	   archive
+	   livestreaming
+	   cameracapture
+	   videosurveillance
+	   gamestreaming
+	   remotegaming
+       avbr_accuracy
+	   Accuracy of the AVBR ratecontrol (unit of tenth of percent).
+
+       avbr_convergence
+	   Convergence of the AVBR ratecontrol (unit of 100 frames)
+
+	   The parameters avbr_accuracy and avbr_convergence are for the
+	   average variable bitrate control (AVBR) algorithm.  The algorithm
+	   focuses on overall encoding quality while meeting the specified
+	   bitrate, target_bitrate, within the accuracy range avbr_accuracy,
+	   after a avbr_Convergence period. This method does not follow HRD
+	   and the instant bitrate is not capped or padded.
+
+       skip_frame
+	   Use per-frame metadata "qsv_skip_frame" to skip frame when
+	   encoding. This option defines the usage of this metadata.
+
+	   no_skip
+	       Frame skipping is disabled.
+
+	   insert_dummy
+	       Encoder inserts into bitstream frame where all macroblocks are
+	       encoded as skipped.
+
+	   insert_nothing
+	       Similar to insert_dummy, but encoder inserts nothing into
+	       bitstream. The skipped frames are still used in brc. For
+	       example, gop still include skipped frames, and the frames after
+	       skipped frames will be larger in size.
+
+	   brc_only
+	       skip_frame metadata indicates the number of missed frames
+	       before the current frame.
 
        MPEG2 Options
 
@@ -4628,6 +5193,52 @@ VIDEO ENCODERS
 	   profile1
 	   profile2
 	   profile3
+       tile_cols
+	   Number of columns for tiled encoding (requires libmfx >= 1.29).
+
+       tile_rows
+	   Number of rows for tiled encoding (requires libmfx  >= 1.29).
+
+       AV1 Options
+
+       These options are used by av1_qsv (requires libvpl).
+
+       profile
+	   unknown
+	   main
+       tile_cols
+	   Number of columns for tiled encoding.
+
+       tile_rows
+	   Number of rows for tiled encoding.
+
+       adaptive_i
+	   This flag controls insertion of I frames by the QSV encoder. Turn
+	   ON this flag to allow changing of frame type from P and B to I.
+
+       adaptive_b
+	   This flag controls changing of frame type from B to P.
+
+       b_strategy
+	   This option controls usage of B frames as reference.
+
+       extbrc
+	   Extended bitrate control.
+
+       look_ahead_depth
+	   Depth of look ahead in number frames, available when extbrc option
+	   is enabled.
+
+       low_delay_brc
+	   Setting this flag turns on or off LowDelayBRC feautre in qsv
+	   plugin, which provides more accurate bitrate control to minimize
+	   the variance of bitstream size frame by frame. Value: -1-default
+	   0-off 1-on
+
+       max_frame_size
+	   Set the allowed max size in bytes for each frame. If the frame size
+	   exceeds the limitation, encoder will adjust the QP value to control
+	   the frame size.  Invalid in CQP rate control mode.
 
    snow
        Options
@@ -4706,6 +5317,17 @@ VIDEO ENCODERS
 	   greater values multiple layers of B-frames will be present, frames
 	   in each layer only referring to frames in higher layers.
 
+       async_depth
+	   Maximum processing parallelism. Increase this to improve single
+	   channel performance. This option doesn't work if driver doesn't
+	   implement vaSyncBuffer function. Please make sure there are enough
+	   hw_frames allocated if a large number of async_depth is used.
+
+       max_frame_size
+	   Set the allowed max size in bytes for each frame. If the frame size
+	   exceeds the limitation, encoder will adjust the QP value to control
+	   the frame size.  Invalid in CQP rate control mode.
+
        rc_mode
 	   Set the rate control mode to use.  A given driver may only support
 	   a subset of modes.
@@ -4731,6 +5353,19 @@ VIDEO ENCODERS
 	       Average variable bitrate.
 
        Each encoder also has its own specific options:
+
+       av1_vaapi
+	   profile sets the value of seq_profile.  tier sets the value of
+	   seq_tier.  level sets the value of seq_level_idx.
+
+	   tiles
+	       Set the number of tiles to encode the input video with, as
+	       columns x rows.	(default is auto, which means use minimal tile
+	       column/row number).
+
+	   tile_groups
+	       Set tile groups number. All the tiles will be distributed as
+	       evenly as possible to each tile group. (default is 1).
 
        h264_vaapi
 	   profile sets the value of profile_idc and the
@@ -4834,6 +5469,19 @@ VIDEO ENCODERS
 	   filter may be required to produce a stream usable with all
 	   decoders.
 
+   vbn
+       Vizrt Binary Image encoder.
+
+       This format is used by the broadcast vendor Vizrt for quick texture
+       streaming.  Advanced features of the format such as LZW compression of
+       texture data or generation of mipmaps are not supported.
+
+       Options
+
+       format string
+	   Sets the texture compression used by the VBN file. Can be dxt1,
+	   dxt5 or raw. Default is dxt5.
+
    vc2
        SMPTE VC-2 (previously BBC Dirac Pro). This codec was primarily aimed
        at professional broadcasting but since it supports yuv420, yuv422 and
@@ -4922,9 +5570,9 @@ AUTHORS
        The FFmpeg developers.
 
        For details about the authorship, see the Git history of the project
-       (git://source.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
+       (https://git.ffmpeg.org/ffmpeg), e.g. by typing the command git log in
        the FFmpeg source directory, or browsing the online repository at
-       <http://source.ffmpeg.org>.
+       <https://git.ffmpeg.org/ffmpeg>.
 
        Maintainers for the specific components are listed in the file
        MAINTAINERS in the source code tree.
