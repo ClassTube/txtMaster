@@ -1,11 +1,7 @@
-
 {
-
-    "name": "MG",
-
-    "description": "A Modular telegram bot.",
-
-    "repository": "https://github.com/imacekun/pyrotxt",
+    "name":"bhai",
+    "description":"Download videos from various websites using this telegram bot",
+    "repository":"https://github.com/Adrenalinators/TXTLeechBot",
     "buildpacks":[
         {
             "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git"
@@ -17,49 +13,22 @@
             "url": "heroku/python"
         }
     ],
-    "keywords": [
-
-       
-
-        "telegram bot",
-
-        "pyrogram"
-
-    ],
-
     "env": {
-
-        "BOT_TOKEN": {
-
-            "description": "Your Bot token from @Botfather",
-            "required": false
-
+        "API_ID":{
+            "description": "Get your telegram API ID from https://my.telegram.org",
+            "value":""
         },
-
-        "API_ID": {
-
-            "description": "Your API_ID from https://my.telegram.org/apps",
-            "required": false
-
+        "API_HASH":{
+            "description":"Get your telegram API HASH from https://my.telegram.org",
+		    "value":""
         },
-
-        "API_HASH": {
-
-            "description": "Your API_HASH from https://my.telegram.org/apps",
-            "required": false
-
+        "BOT_TOKEN":{
+            "description":"Get from BotFather",
+            "value":""
+        },
+        "AUTH_USERS":{
+            "description":"Admin/Owner/Friends ID Seperate by ','  Ex: 44578878,8878899",
+            "value":""
         }
-
-    },
-
-    "buildpacks": [
-
-        {
-
-            "url": "heroku/python"
-
-        }
-
-    ]
-
+    }
 }
