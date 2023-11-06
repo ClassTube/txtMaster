@@ -6,19 +6,21 @@ from pyrogram import Client, filters
 from pyrogram.types.messages_and_media import message
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.errors import FloodWait
-from pyromod import Client
 from pyromod import listen
 from pyrogram.types import Message
-from pyrogram import Client, filters
+import pyrogram
+import tgcrypto
 from p_bar import progress_bar
+from details import api_id, api_hash, bot_token, sudo_group
 from subprocess import getstatusoutput
-from aiohttp import ClientSession
 import helper
-from logger import logging
+import logging
 import time
+import glob
+import aiohttp
 import asyncio
+import aiofiles
 from pyrogram.types import User, Message
-from config import *
 import sys
 import re
 import os
