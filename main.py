@@ -19,7 +19,6 @@ from subprocess import getstatusoutput
 import logging
 import os
 import sys
-from get_video_info import get_video_attributes, get_video_thumb
 import re
 from pyrogram import Client as bot
 
