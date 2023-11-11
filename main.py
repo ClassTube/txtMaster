@@ -1,31 +1,33 @@
-from pyrogram.errors.exceptions.bad_request_400 import StickerEmojiInvalid
-import requests
 import json
 import subprocess
+from pyrogram.types.messages_and_media import message
+import helper
+from pyromod import listen
+from pyrogram.types import Message
+import tgcrypto
+import pyrogram
 from pyrogram import Client, filters
 from pyrogram.types.messages_and_media import message
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from pyrogram.errors import FloodWait
-from pyromod import listen
-from pyrogram.types import Message
-from pyrogram import Client, filters
-from p_bar import progress_bar
-from subprocess import getstatusoutput
-from aiohttp import ClientSession
-import helper
-from logger import logging
-import time
 import asyncio
+from pyrogram.errors import FloodWait
+import time
 from pyrogram.types import User, Message
-from config import *
-import sys
-import re
+from p_bar import progress_bar
+import subprocess
+from subprocess import getstatusoutput
+import logging
 import os
+import sys
+from get_video_info import get_video_attributes, get_video_thumb
+import re
+from pyrogram import Client as bot
 
 bot = Client("bot",
-             bot_token= "6351714036:AAFFameNDrmVv9fRHuLJ7r1mL0llIzx7NTM",
-             api_id= 27097807,
-             api_hash= "9fd790a9cb1f639c921d941621d2959d")
+             bot_token= "
+6559500381:AAHgrqNXCx_6yCP67yh0ykEASjteZKTJHGI",
+             api_id= 27039595,
+             api_hash= "aabe9b61bbdb73ea4b35fc4faa880621")
 
 
 @bot.on_message(filters.command(["start"]) & filters.user(ADMINS))
