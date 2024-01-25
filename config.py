@@ -2,9 +2,9 @@ import os
 
 API_ID = API_ID = 22779671
 
-API_HASH = os.environ.get("API_HASH", "125d8d88b77309dc3b154cbbfc2dacb2")
+API_HASH = os.environ.get("API_HASH", "ef8b083047453358ef27bf889e8de82c")
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "6152562853:AAGimPmtvHjqcE8em9iDMH-QAjkM8133P0c")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "6841462459:AAF6O_r-rJ3Gixl-4ZlHnzlxL-B_5HLSlpw")
 
 PASS_DB = int(os.environ.get("PASS_DB", "721"))
 
